@@ -1,0 +1,3 @@
+[submodule "ruler"]
+	path = ruler
+	url = git@github.com:uwplse/ruler.git

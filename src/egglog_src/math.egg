@@ -1,0 +1,15 @@
+(datatype Math
+  (Num i64)
+  (Var String)
+  (Add Math Math)
+  (Sub Math Math)
+  (Mul Math Math)
+  (Div Math Math))
+
+(datatype CvecElement
+  (None)
+  (Some i64))
+
+(sort Cvec (Vec CvecElement))
+
+(function HasCvec (Math) Cvec)
