@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+egglog = "0.2.0"
+egraph-serialize = "0.1.0"
+ruler = { path = "./ruler" }
