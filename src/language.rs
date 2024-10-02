@@ -5,7 +5,7 @@ pub type CVec<L> = Vec<Option<<L as ChompyLang>::Constant>>;
 pub type Constant<L> = <L as ChompyLang>::Constant;
 
 pub trait ChompyLang {
-    type Constant: Clone;
+    type Constant: Clone + Display;
 
     // returns the expression for the given statement.
     fn parse(statement: &str) -> Self;
@@ -43,58 +43,17 @@ pub trait ChompyLang {
         }
         args
     }
-}
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum MathLang {
-    Num(i64),
-    Var(String),
-    Add(Box<MathLang>, Box<MathLang>),
-    Sub(Box<MathLang>, Box<MathLang>),
-    Mul(Box<MathLang>, Box<MathLang>),
-    Div(Box<MathLang>, Box<MathLang>),
-}
-
-impl ChompyLang for MathLang {
-    type Constant = i64;
-
-    fn parse(statement: &str) -> Self {
-        assert!(statement.starts_with("(") && statement.ends_with(")"));
-        // get the first token
-        let mut tokens = statement[1..statement.len() - 1].split_whitespace();
-        let operator = tokens.next().unwrap();
-        let children = MathLang::_get_children(statement);
-        match operator {
-            "Num" => MathLang::Num(children[0].parse().unwrap()),
-            "Var" => MathLang::Var(children[0].clone()),
-            _ => {
-                let left = Box::new(MathLang::parse(&children[0]));
-                let right = Box::new(MathLang::parse(&children[1]));
-                match operator {
-                    "Add" => MathLang::Add(left, right),
-                    "Sub" => MathLang::Sub(left, right),
-                    "Mul" => MathLang::Mul(left, right),
-                    "Div" => MathLang::Div(left, right),
-                    _ => panic!("Unknown operator: {}", operator),
-                }
-            }
-        }
-    }
-
-    fn to_sexpr(&self) -> String {
-        match self {
-            MathLang::Num(n) => format!("(Num {})", n),
-            MathLang::Var(v) => format!("(Var \"{}\")", v),
-            MathLang::Add(l, r) => format!("(Add {} {})", l.to_sexpr(), r.to_sexpr()),
-            MathLang::Sub(l, r) => format!("(Sub {} {})", l.to_sexpr(), r.to_sexpr()),
-            MathLang::Mul(l, r) => format!("(Mul {} {})", l.to_sexpr(), r.to_sexpr()),
-            MathLang::Div(l, r) => format!("(Div {} {})", l.to_sexpr(), r.to_sexpr()),
-        }
-    }
-}
-
-impl Display for MathLang {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_sexpr())
+    fn cvec_to_sexpr(cvec: &CVec<Self>) -> String {
+        let elements = cvec
+            .iter()
+            .map(|x| match x {
+                Some(x) => format!("(Some {})", x),
+                None => "(None)".to_string(),
+            })
+            .collect::<Vec<String>>();
+        // then, join them with a space.
+        let together = format!("{}", elements.join(" "));
+        format!("(vec-of {})", together)
     }
 }
