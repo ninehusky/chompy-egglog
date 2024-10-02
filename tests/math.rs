@@ -1,5 +1,5 @@
 use chompy::{language::*, runner::Runner};
-use egglog::ast::Command;
+use egraph_serialize::ClassId;
 use ruler::HashMap;
 use std::fmt::Display;
 
@@ -76,6 +76,15 @@ impl Default for MathRunner {
             cvec_len: 3,
             expr_num: 0,
         }
+    }
+}
+
+impl MathRunner {
+    fn build_prog(&self, cid: &ClassId) {
+        // serialize the egraph.
+        let serialized = self.egraph.serialize(egglog::SerializeConfig::default());
+        // bleh.. write to disk.
+        std::fs::write("egraph.json", &serialized).unwrap();
     }
 }
 
