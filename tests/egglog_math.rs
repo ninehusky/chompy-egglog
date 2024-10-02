@@ -152,6 +152,4 @@ fn test_egglog_math() {
     runner
         .add_exprs(sexprs.iter().map(|x| parser.parse(x).unwrap()).collect())
         .unwrap();
-    println!("{:?}", runner.memoized);
-    println!("{:?}", runner.egraph.serialize_for_graphviz(true));
 }
