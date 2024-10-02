@@ -1,3 +1,7 @@
 [submodule "ruler"]
 	path = ruler
 	url = git@github.com:uwplse/ruler.git
+[submodule "extraction-gym"]
+	path = extraction-gym
+	url = git@github.com:ninehusky/extraction-gym.git
+	branch = ninehusky-use-extraction-gym-as-lib
