@@ -1,2 +1,2 @@
-pub mod language;
+pub mod rule;
 pub mod runner;
