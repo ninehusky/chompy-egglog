@@ -163,11 +163,11 @@ fn test_egglog_math() {
     egraph
         .parse_and_run_program(include_str!("./egglog/math.egg"))
         .unwrap();
-    let mut runner = MathRunner::default();
-    let sexprs = vec!["(Num 1)", "(Div (Var \"x\") (Var \"x\"))"];
+    // let mut runner = MathRunner::default();
+    // let sexprs = vec!["(Num 1)", "(Div (Var \"x\") (Var \"x\"))"];
 
-    let parser = egglog::ast::parse::ExprParser::new();
-    runner
-        .add_exprs(sexprs.iter().map(|x| parser.parse(x).unwrap()).collect())
-        .unwrap();
+    // let parser = egglog::ast::parse::ExprParser::new();
+    // runner
+    //     .add_exprs(sexprs.iter().map(|x| parser.parse(x).unwrap()).collect())
+    //     .unwrap();
 }

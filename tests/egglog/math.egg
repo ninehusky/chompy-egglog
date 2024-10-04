@@ -1,15 +1,185 @@
+;;; A binary operation.
+(datatype Fn
+   (Add)
+   (Sub)
+   (Mul)
+   (Div))
+
+(datatype PredFn
+    (Eq)
+    (Neq))
+
+;;; The root term language we're using.
 (datatype Math
   (Num i64)
   (Var String)
-  (Add Math Math)
-  (Sub Math Math)
-  (Mul Math Math)
-  (Div Math Math))
+  (Op2 Fn Math Math))
 
+;;; predicates!
+(datatype Pred
+     ;;; Just a term across two math exprs, e.g. "(Op2 (Eq) (Var "x") (Var "y"))".
+     (PredOp2 PredFn Math Math))
+
+(datatype PredCvec
+  (PredNil)
+  (PredCons bool PredCvec))
+
+;;; Cvecs ;;;
 (datatype CvecElement
   (None)
   (Some i64))
 
-(sort Cvec (Vec CvecElement))
+(datatype Cvec
+  (Nil)
+  (Cons CvecElement Cvec))
 
-(function HasCvec (Math) Cvec)
+(relation HasCvec (Math Cvec))
+
+(relation HasPredCvec (Pred PredCvec))
+
+;;; Equivalence by interpreter.
+
+(rule
+ ((HasCvec ?e1 ?cvec)
+  (HasCvec ?e2 ?cvec)
+  (!= ?e1 ?e2))
+ ((union ?e1 ?e2)))
+
+;;; The interpreter from Math -> Cvec.
+(rule
+ 	((Num ?n))
+ 	((HasCvec (Num ?n) (Cons (Some ?n) (Cons (Some ?n) (Cons (Some ?n) (Nil)))))))
+
+(rule
+ 	((Var ?x))
+ 	((HasCvec (Var ?x) (Cons (Some 0) (Cons (Some 1) (Cons (Some 2) (Nil)))))))
+
+;;; Fn -> child_cvec -> child_cvec -> my_cvec
+(function zip2 (Fn Cvec Cvec) Cvec)
+
+
+;;; PredFn -> term_cvec -> term_cvec -> result_cvec: vec<bool>
+(function predzip2 (PredFn Cvec Cvec) PredCvec)
+
+(rule
+ ((predzip2 ?fn (Nil) (Cons (Some ?blah) ?tail)))
+ ((panic "predzip: unequal cvec lengths")))
+
+(rewrite
+ (predzip2 ?fn (Nil) (Nil))
+ (PredNil))
+
+(rule
+ ((predzip2 (Eq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+  (= ?n ?m))
+ ((union (predzip2 (Eq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+         (PredCons true (predzip2 (Eq) ?tail1 ?tail2)))))
+
+(rule
+ ((predzip2 (Eq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+  (!= ?n ?m))
+ ((union (predzip2 (Eq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+         (PredCons false (predzip2 (Eq) ?tail1 ?tail2)))))
+
+(rule
+ ((PredOp2 ?op ?term1 ?term2)
+  (HasCvec ?term1 ?cvec1)
+  (HasCvec ?term2 ?cvec2))
+ ((HasPredCvec (PredOp2 ?op ?term1 ?term2)
+               (predzip2 ?op ?cvec1 ?cvec2))))
+
+
+(rule
+ ((zip2 ?fn (Nil) (Cons (Some ?blah) ?tail)))
+ ((panic "zip: unequal cvec lengths")))
+
+
+(rewrite
+ (zip2 ?fn (Nil) (Nil))
+ (Nil))
+
+(rewrite
+ (zip2
+  (Add)
+  (Cons (Some ?n1) ?tail1)
+  (Cons (Some ?n2) ?tail2))
+ (Cons (Some (+ ?n1 ?n2))
+       (zip2 (Add) ?tail1 ?tail2)))
+
+(rewrite
+ (zip2
+  (Sub)
+  (Cons (Some ?n1) ?tail1)
+  (Cons (Some ?n2) ?tail2))
+ (Cons (Some (- ?n1 ?n2))
+       (zip2 (Sub) ?tail1 ?tail2)))
+
+(rewrite
+ (zip2
+  (Mul)
+  (Cons (Some ?n1) ?tail1)
+  (Cons (Some ?n2) ?tail2))
+ (Cons (Some (* ?n1 ?n2))
+       (zip2 (Mul) ?tail1 ?tail2)))
+
+(rule
+ ((zip2
+  (Div)
+  (Cons (Some ?n1) ?tail1)
+  (Cons (Some ?n2) ?tail2))
+  (!= ?n2 0))
+ ((union
+  (zip2
+   (Div)
+   (Cons (Some ?n1) ?tail1)
+   (Cons (Some ?n2) ?tail2))
+   (Cons (Some (/ ?n1 ?n2))
+       (zip2 (Div) ?tail1 ?tail2)))))
+
+(rewrite
+ (zip2
+  (Div)
+  (Cons (Some ?n1) ?tail1)
+  (Cons (Some 0) ?tail2))
+ (Cons (None)
+       (zip2 (Div) ?tail1 ?tail2)))
+
+(rule
+ ((Op2 ?op ?e1 ?e2)
+  (HasCvec ?e1 ?cvec1)
+  (HasCvec ?e2 ?cvec2))
+ ((HasCvec
+  (Op2 ?op ?e1 ?e2)
+  (zip2 ?op ?cvec1 ?cvec2))))
+
+(let expr0 (Var "a"))
+(let expr1 (Num 0))
+
+(let expr2 (PredOp2 (Eq) expr0 expr1))
+
+(let expr3 (Op2 (Div) expr0 expr0))
+
+(run 100)
+
+(ruleset
+ cleanup)
+
+(rule
+  ((zip2 ?op ?e1 ?e2))
+  ((delete (zip2 ?op ?e1 ?e2)))
+  :ruleset cleanup)
+
+(rule
+  ((predzip2 ?op ?e1 ?e2))
+  ((delete (predzip2 ?op ?e1 ?e2)))
+  :ruleset cleanup)
+(run cleanup 100)
+
