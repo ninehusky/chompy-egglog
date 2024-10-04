@@ -11,5 +11,5 @@ pub trait Runner {
 
     fn interpret(&mut self, term: Expr) -> Result<CVec<Self::Constant>, String>;
 
-    fn find_rules(&self, cvecs: &CVec<Self::Constant>) -> Vec<Rule>;
+    fn find_rules(&mut self) -> Vec<Rule>;
 }

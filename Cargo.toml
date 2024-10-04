@@ -7,4 +7,3 @@ edition = "2021"
 egglog = "0.2.0"
 egraph-serialize = "0.1.0"
 ruler = { path = "./ruler" }
-extraction-gym = { path = "./extraction-gym" }

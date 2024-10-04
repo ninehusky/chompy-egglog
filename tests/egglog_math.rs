@@ -1,11 +1,11 @@
-// like math, but using egglog bindings where i can.
-//
 use chompy::runner::{CVec, Runner};
 use egglog::{ast::Expr, Term};
 
 struct MathRunner {
     egraph: egglog::EGraph,
+    pred_egraph: egglog::EGraph,
     termdag: egglog::TermDag,
+    pred_termdag: egglog::TermDag,
     memoized: std::collections::HashMap<Term, CVec<i64>>,
     cvec_len: usize,
 }
@@ -13,12 +13,15 @@ struct MathRunner {
 impl Default for MathRunner {
     fn default() -> Self {
         let mut egraph = egglog::EGraph::default();
+        let pred_egraph = egglog::EGraph::default();
         egraph
             .parse_and_run_program(include_str!("./egglog/math.egg"))
             .unwrap();
         MathRunner {
             egraph,
+            pred_egraph,
             termdag: egglog::TermDag::default(),
+            pred_termdag: egglog::TermDag::default(),
             memoized: std::collections::HashMap::default(),
             cvec_len: 5,
         }
@@ -55,6 +58,10 @@ impl Runner for MathRunner {
                 continue;
             }
 
+            // TODO: (@ninehusky):
+            // eventually, we'll want to perform some sort of extraction here,
+            // to make sure terms which are equivalent aren't unnecessarily added.
+            //
             // let (sort, value) = self.egraph.eval_expr(&expr).unwrap();
             // // extract the value
             // let mut termdag = egglog::TermDag::default();
@@ -65,8 +72,9 @@ impl Runner for MathRunner {
         Ok(String::from("yeah"))
     }
 
-    fn interpret(&mut self, expr: Expr) -> Result<chompy::runner::CVec<Self::Constant>, String> {
+    fn interpret(&mut self, expr: Expr) -> Result<CVec<Self::Constant>, String> {
         let term = self.termdag.expr_to_term(&expr);
+        // TODO: would be interesting to see if you could extract out a canonical form here.
         if let Some(cvec) = self.memoized.get(&term) {
             return Ok(cvec.clone());
         }
@@ -133,7 +141,17 @@ impl Runner for MathRunner {
         cvec
     }
 
-    fn find_rules(&self, cvecs: &CVec<Self::Constant>) -> Vec<chompy::rule::Rule> {
+    fn find_rules(&mut self) -> Vec<chompy::rule::Rule> {
+        //     // let's do this the old way, with just cvec matching (non-conditonal)
+        //     let mut rules = vec![];
+        //     let mut candidate_terms: Vec<egglog::Term> = vec![];
+        //     let serialized = self.egraph.serialize(egglog::SerializeConfig::default());
+        //     for (cid, class) in serialized.classes() {
+        //         // get the representative term.
+        //
+        //     }
+        //     let candidate_terms =
+        //     rules
         vec![]
     }
 }
