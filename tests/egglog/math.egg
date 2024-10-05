@@ -1,4 +1,4 @@
-;;; A binary operation.
+  ;;; A binary operation.
 (datatype Fn
    (Add)
    (Sub)
@@ -39,11 +39,11 @@
 
 ;;; Equivalence by interpreter.
 
-(rule
- ((HasCvec ?e1 ?cvec)
-  (HasCvec ?e2 ?cvec)
-  (!= ?e1 ?e2))
- ((union ?e1 ?e2)))
+; (rule
+;  ((HasCvec ?e1 ?cvec)
+;   (HasCvec ?e2 ?cvec)
+;   (!= ?e1 ?e2))
+;  ((union ?e1 ?e2)))
 
 ;;; The interpreter from Math -> Cvec.
 (rule
@@ -160,12 +160,49 @@
   (Op2 ?op ?e1 ?e2)
   (zip2 ?op ?cvec1 ?cvec2))))
 
+
+;;; potential rules.
+
+(relation Rule (Math Math))
+
+(rule
+ ((HasCvec ?term1 ?cvec)
+  (HasCvec ?term2 ?cvec)
+  (!= ?term1 ?term2))
+ ((Rule ?term1 ?term2)))
+
+;;; conditional rules.
+
+(relation HasMatch (PredCvec Cvec Cvec))
+
+(rule
+ ((PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2)
+  (= ?p1 true)
+  (= ?c1 ?c2)
+  (HasMatch ?ptail ?tail1 ?tail2))
+ ((HasMatch
+  (PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2))))
+
+(rule
+ ((PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2)
+  (= ?p1 true)
+  (= ?c1 ?c2)
+  (HasMatch ?ptail ?tail1 ?tail2))
+ ((HasMatch
+  (PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2))))
+
 (let expr0 (Var "a"))
 (let expr1 (Num 0))
 
-(let expr2 (PredOp2 (Eq) expr0 expr1))
-
-(let expr3 (Op2 (Div) expr0 expr0))
+(let expr2 (Op2 (Add) expr0 expr1))
 
 (run 100)
 
@@ -182,4 +219,6 @@
   ((delete (predzip2 ?op ?e1 ?e2)))
   :ruleset cleanup)
 (run cleanup 100)
+
+
 
