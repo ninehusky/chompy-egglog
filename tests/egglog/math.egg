@@ -90,6 +90,26 @@
          (PredCons false (predzip2 (Eq) ?tail1 ?tail2)))))
 
 (rule
+ ((predzip2 (Neq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+  (!= ?n ?m))
+ ((union (predzip2 (Neq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+         (PredCons true (predzip2 (Neq) ?tail1 ?tail2)))))
+
+(rule
+ ((predzip2 (Neq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+  (= ?n ?m))
+ ((union (predzip2 (Neq)
+            (Cons ?n ?tail1)
+            (Cons ?m ?tail2))
+         (PredCons false (predzip2 (Neq) ?tail1 ?tail2)))))
+
+(rule
  ((PredOp2 ?op ?term1 ?term2)
   (HasCvec ?term1 ?cvec1)
   (HasCvec ?term2 ?cvec2))
@@ -164,6 +184,7 @@
 ;;; potential rules.
 
 (relation Rule (Math Math))
+(relation CondRule (Pred Math Math))
 
 (rule
  ((HasCvec ?term1 ?cvec)
@@ -175,17 +196,10 @@
 
 (relation HasMatch (PredCvec Cvec Cvec))
 
-(rule
- ((PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2)
-  (= ?p1 true)
-  (= ?c1 ?c2)
-  (HasMatch ?ptail ?tail1 ?tail2))
- ((HasMatch
-  (PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2))))
+;; handle the base case.
+(HasMatch (PredNil) (Nil) (Nil))
+
+;; recursive case: p1 -> (c1 == c2)
 
 (rule
  ((PredCons ?p1 ?ptail)
@@ -198,11 +212,33 @@
   (PredCons ?p1 ?ptail)
   (Cons ?c1 ?tail1)
   (Cons ?c2 ?tail2))))
+
+;; recursive case: !p1 -> (c1 != c2)
+(rule
+ ((PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2)
+  (!= ?p1 true)
+  (!= ?c1 ?c2)
+  (HasMatch ?ptail ?tail1 ?tail2))
+ ((HasMatch
+  (PredCons ?p1 ?ptail)
+  (Cons ?c1 ?tail1)
+  (Cons ?c2 ?tail2))))
+
+(rule
+ ((HasCvec ?t1 ?c1)
+  (HasCvec ?t2 ?c2)
+  (HasPredCvec ?pred ?p1)
+  (HasMatch ?p1 ?c1 ?c2))
+ ((CondRule ?pred ?t1 ?t2)))
 
 (let expr0 (Var "a"))
 (let expr1 (Num 0))
+(let expr2 (PredOp2 (Neq) expr0 expr1))
+(let expr3 (Op2 (Div) expr0 expr0))
+(let expr4 (Num 1))
 
-(let expr2 (Op2 (Add) expr0 expr1))
 
 (run 100)
 
@@ -218,7 +254,16 @@
   ((predzip2 ?op ?e1 ?e2))
   ((delete (predzip2 ?op ?e1 ?e2)))
   :ruleset cleanup)
-(run cleanup 100)
+
+(rule
+  ((HasMatch ?blah ?blah1 ?blah2))
+  ((delete (HasMatch ?blah ?blah1 ?blah2)))
+  :ruleset cleanup)
+
+(check (CondRule expr2 expr3 expr4))
+
+
+; (run cleanup 100)
 
 
 
