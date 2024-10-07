@@ -33,10 +33,10 @@ pub struct OptionSort {
 
 impl OptionSort {
     #[allow(dead_code)]
-    fn new() -> Self {
+    fn new(sort: ArcSort) -> Self {
         Self {
             name: "Option".into(),
-            element: Arc::new(egglog::sort::I64Sort::new("i64".into())),
+            element: sort,
             options: IndexSet::new().into(),
         }
     }
@@ -169,9 +169,13 @@ mod tests {
     use crate::option::*;
 
     #[test]
-    fn test_none_constructor() {
+    fn test_i64_constructor() {
         let mut egraph = egglog::EGraph::default();
-        egraph.add_arcsort(Arc::new(OptionSort::new())).unwrap();
+        egraph
+            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
+                egglog::sort::I64Sort::new("i64".into()),
+            ))))
+            .unwrap();
         let outputs = egraph
             .parse_and_run_program(
                 None,
@@ -180,6 +184,28 @@ mod tests {
                 (let expr2 (option-some 1))
                 (let expr3 (option-none))
                 (check (= expr1 expr2))
+                "#,
+            )
+            .unwrap();
+        println!("outputs are {:?}", outputs);
+    }
+
+    #[test]
+    fn test_bool_constructor() {
+        let mut egraph = egglog::EGraph::default();
+        egraph
+            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
+                egglog::sort::BoolSort::new("bool".into()),
+            ))))
+            .unwrap();
+        let outputs = egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (let expr1 (option-some true))
+                (let expr2 (option-some false))
+                (let expr3 (option-none))
+                (check (!= expr1 expr2))
                 "#,
             )
             .unwrap();
