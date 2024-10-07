@@ -15,7 +15,7 @@ impl Default for MathRunner {
         let mut egraph = egglog::EGraph::default();
         let pred_egraph = egglog::EGraph::default();
         egraph
-            .parse_and_run_program(include_str!("./egglog/math.egg"))
+            .parse_and_run_program(None, include_str!("./egglog/math.egg"))
             .unwrap();
         MathRunner {
             egraph,
@@ -41,7 +41,7 @@ impl MathRunner {
         let expr_id = format!("expr{}", self.memoized.len());
         let add_command = format!("(let {} {})", expr_id, expr.to_sexp());
         self.egraph
-            .parse_and_run_program(&add_command)
+            .parse_and_run_program(None, &add_command)
             .map_err(|e| e.to_string())
     }
 }
@@ -161,7 +161,7 @@ fn test_egglog_math() {
     // read the definitions
     let mut egraph = egglog::EGraph::default();
     egraph
-        .parse_and_run_program(include_str!("./egglog/math.egg"))
+        .parse_and_run_program(None, include_str!("./egglog/math.egg"))
         .unwrap();
     // let mut runner = MathRunner::default();
     // let sexprs = vec!["(Num 1)", "(Div (Var \"x\") (Var \"x\"))"];

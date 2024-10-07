@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-egglog = "0.2.0"
+egglog = "0.3.0"
 egraph-serialize = "0.1.0"
+indexmap = "2.6.0"
+lazy_static = "1.5.0"
 ruler = { path = "./ruler" }
