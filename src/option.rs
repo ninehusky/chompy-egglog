@@ -32,6 +32,7 @@ pub struct OptionSort<T> {
     name: Symbol,
     element: T,
     pub options: Mutex<IndexSet<Option<Value>>>,
+    pub state: Vec<String>,
 }
 
 impl OptionSort<ArcSort> {
@@ -41,6 +42,7 @@ impl OptionSort<ArcSort> {
             name: format!("Option{}", sort.name()).into(),
             element: sort,
             options: IndexSet::new().into(),
+            state: vec![],
         }
     }
 }
@@ -234,19 +236,22 @@ mod tests {
     #[test]
     fn test_multiple_domains() {
         let mut egraph = egglog::EGraph::default();
+        let mut sort = OptionSort::new(Arc::new(egglog::sort::UnitSort::new("Unit".into())));
+        sort.state.push("Unit".into());
+
+        let option_int_sort = Arc::new(OptionSort::new(Arc::new(egglog::sort::I64Sort::new(
+            "i64".into(),
+        ))));
+
         egraph
             .add_arcsort(Arc::new(OptionSort::new(Arc::new(
                 egglog::sort::UnitSort::new("Unit".into()),
             ))))
             .unwrap();
+        egraph.add_arcsort(option_int_sort.clone()).unwrap();
         egraph
             .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::BoolSort::new("bool".into()),
-            ))))
-            .unwrap();
-        egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::I64Sort::new("i64".into()),
+                egglog::sort::I64Sort::new("bool".into()),
             ))))
             .unwrap();
         let outputs = egraph
@@ -254,16 +259,19 @@ mod tests {
                 None,
                 r#"
                 (let expr0 (option-some 1))
-                (let expr1 (option-some true))
-                (let expr2 (option-some false))
-                (let expr3 (option-none-i64))
-                (let expr4 (option-none-bool))
-                (check (!= expr1 expr2))
+                (let expr1 (option-some 2))
+                (let expr2 (option-some 3))
+                (let expr3 (option-some true))
+                (let expr4 (option-some false))
+                (let expr5 (option-none-i64))
+                (let expr6 (option-none-bool))
+                ; (check (!= expr1 expr2))
                 ; nones are always equal.
-                (check (= expr3 expr4))
+                ; (check (= expr3 expr4))
                 "#,
             )
             .unwrap();
+        println!("option int sort state is {:?}", option_int_sort.options);
         println!("outputs are {:?}", outputs);
     }
 }

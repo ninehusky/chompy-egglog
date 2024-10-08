@@ -1,5 +1,6 @@
 use chompy::runner::{CVec, Runner};
-use egglog::{ast::Expr, Term};
+use egglog::{ast::Expr, Term, Value};
+use ruler::recipe_utils::{base_lang, iter_metric, Lang};
 
 struct MathRunner {
     egraph: egglog::EGraph,
@@ -156,18 +157,113 @@ impl Runner for MathRunner {
     }
 }
 
+// andrew: I can already tell this is going to be a giant clusterfuck.
+// basically, here what we'd have to do is (1) get a bunch of rule nodes out of the serialized
+// egraph, and then (2) go through each of the rule nodes' children, and extract
+// an idea candidate from the lhs and rhs, which we'd have to do through the extraction
+// gym or other.
+fn _generate_rules(serialized: egraph_serialize::EGraph) {
+    let rule_classes: Vec<_> = serialized
+        .classes()
+        .iter()
+        .fold(vec![], |mut acc, (_, class)| {
+            // find the nodes with op "rule"
+            let nids = class
+                .nodes
+                .iter()
+                .filter(|node| serialized.nodes[*node].op == "Rule")
+                .into_iter();
+            for nid in nids {
+                acc.push(nid);
+            }
+            acc
+        })
+        .into_iter()
+        .collect();
+    println!("found these rules: {:?}", rule_classes);
+}
+
 #[test]
 fn test_egglog_math() {
     // read the definitions
+    const CVEC_LEN: usize = 100;
     let mut egraph = egglog::EGraph::default();
     egraph
         .parse_and_run_program(None, include_str!("./egglog/math.egg"))
         .unwrap();
-    // let mut runner = MathRunner::default();
-    // let sexprs = vec!["(Num 1)", "(Div (Var \"x\") (Var \"x\"))"];
 
-    // let parser = egglog::ast::parse::ExprParser::new();
-    // runner
-    //     .add_exprs(sexprs.iter().map(|x| parser.parse(x).unwrap()).collect())
-    //     .unwrap();
+    let num_cvec = {
+        let mut acc = String::from("(Nil)");
+        for _ in 0..CVEC_LEN {
+            acc = format!("(Cons (Some 0) {})", acc);
+        }
+        acc
+    };
+
+    let var_cvec = {
+        let mut acc = String::from("(Nil)");
+        for i in 0..CVEC_LEN {
+            acc = format!("(Cons (Some {}) {})", i, acc);
+        }
+        acc
+    };
+
+    // generate the rules for cvecs.
+    // num:
+    egraph
+        .parse_and_run_program(
+            None,
+            &r#"
+        (rule
+            ((Num ?n))
+            ((HasCvec (Num ?n)
+                {})))"#
+                .replace("{}", &num_cvec),
+        )
+        .unwrap();
+
+    egraph
+        .parse_and_run_program(
+            None,
+            &r#"
+        (rule
+            ((Var ?v))
+            ((HasCvec (Var ?v)
+                {})))"#
+                .replace("{}", &var_cvec),
+        )
+        .unwrap();
+
+    // let's just use Enumo to enumerate the terms.
+    let leaves = ruler::enumo::Workload::new(&[
+        "(Num 0)",
+        "(Num 1)",
+        "(Var quoteaquote)",
+        "(Var quotebquote)",
+    ]);
+    let term_language = ruler::enumo::Workload::new(&["EXPR", "(Op2 FN EXPR EXPR)"]).plug(
+        "FN",
+        &ruler::enumo::Workload::new(&["(Add)", "(Sub)", "(Mul)", "(Div)"]),
+    );
+
+    let mut new_language = term_language.clone().plug("EXPR", &leaves);
+
+    for _ in 0..0 {
+        new_language = term_language.clone().plug("EXPR", &new_language);
+    }
+
+    for (i, term) in new_language.force().into_iter().enumerate() {
+        egraph
+            .parse_and_run_program(
+                None,
+                format!("(let term{} {})", i, term.to_string().as_str())
+                    .replace("quote", "\"")
+                    .as_str(),
+            )
+            .unwrap();
+    }
+    egraph.parse_and_run_program(None, "(run 1000000)").unwrap();
+    egraph
+        .parse_and_run_program(None, "(run cleanup 100000)")
+        .unwrap();
 }

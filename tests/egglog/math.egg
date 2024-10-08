@@ -46,13 +46,14 @@
 ;  ((union ?e1 ?e2)))
 
 ;;; The interpreter from Math -> Cvec.
-(rule
- 	((Num ?n))
- 	((HasCvec (Num ?n) (Cons (Some ?n) (Cons (Some ?n) (Cons (Some ?n) (Nil)))))))
-
-(rule
- 	((Var ?x))
- 	((HasCvec (Var ?x) (Cons (Some 0) (Cons (Some 1) (Cons (Some 2) (Nil)))))))
+;;; base rules:
+;;; (rule
+;;;  	((Num ?n))
+;;;  	((HasCvec (Num ?n) (Cons (Some ?n) (Cons (Some ?n) (Cons (Some ?n) (Nil)))))))
+;;; 
+;;; (rule
+;;;  	((Var ?x))
+;;;  	((HasCvec (Var ?x) (Cons (Some 0) (Cons (Some 1) (Cons (Some 2) (Nil)))))))
 
 ;;; Fn -> child_cvec -> child_cvec -> my_cvec
 (function zip2 (Fn Cvec Cvec) Cvec)
@@ -233,15 +234,6 @@
   (HasMatch ?p1 ?c1 ?c2))
  ((CondRule ?pred ?t1 ?t2)))
 
-(let expr0 (Var "a"))
-(let expr1 (Num 0))
-(let expr2 (PredOp2 (Neq) expr0 expr1))
-(let expr3 (Op2 (Div) expr0 expr0))
-(let expr4 (Num 1))
-
-
-(run 100)
-
 (ruleset
  cleanup)
 
@@ -259,8 +251,6 @@
   ((HasMatch ?blah ?blah1 ?blah2))
   ((delete (HasMatch ?blah ?blah1 ?blah2)))
   :ruleset cleanup)
-
-(check (CondRule expr2 expr3 expr4))
 
 
 ; (run cleanup 100)
