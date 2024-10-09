@@ -1,12 +1,12 @@
 use egglog::{
-    ast::{Expr, Span, Symbol, DUMMY_FILE},
+    ast::{Expr, Span, Symbol},
     constraint::SimpleTypeConstraint,
-    sort::{FromSort, I64Sort, IntoSort, Sort, VecSort},
-    ArcSort, Error, NotFoundError, PrimitiveLike, TypeError, TypeInfo, Value,
+    sort::{FromSort, IntoSort, Sort},
+    ArcSort, PrimitiveLike, TypeError, TypeInfo, Value,
 };
 
+use crate::DUMMY_SPAN;
 use indexmap::IndexSet;
-use lazy_static::lazy_static;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -20,26 +20,20 @@ impl Default for ValueOption {
     }
 }
 
-lazy_static! {
-    pub static ref DUMMY_SPAN: Span = Span(DUMMY_FILE.clone(), 0, 0);
-}
-
 #[derive(Debug)]
 pub struct OptionSort {
     name: Symbol,
     element: ArcSort,
     pub options: Mutex<IndexSet<Option<Value>>>,
-    pub state: Vec<String>,
 }
 
 impl OptionSort {
     #[allow(dead_code)]
     fn new(sort: ArcSort) -> Self {
         Self {
-            name: format!("Option").into(),
+            name: "Option".into(),
             element: sort,
             options: IndexSet::new().into(),
-            state: vec![],
         }
     }
 
@@ -61,7 +55,7 @@ impl OptionSort {
             if e.is_eq_container_sort() {
                 return Err(TypeError::DisallowedSort(
                     name,
-                    "Sets nested with other EqSort containers are not allowed".into(),
+                    "Options nested with other EqSort containers are not allowed".into(),
                     span.clone(),
                 ));
             }
@@ -70,7 +64,6 @@ impl OptionSort {
                 name,
                 element: e.clone(),
                 options: Mutex::new(IndexSet::new()),
-                state: vec![],
             }))
         } else {
             panic!("Option sort must have sort as argument. Got {:?}", args)
@@ -102,7 +95,6 @@ impl Sort for OptionSort {
         match option.val {
             None => (1, Expr::Call(DUMMY_SPAN.clone(), "None".into(), vec![])),
             Some(value) => {
-                // put it in the indexset
                 self.options.lock().unwrap().insert(Some(value));
                 let (cost, expr) = self.element.make_expr(egraph, value);
                 (
@@ -128,7 +120,6 @@ impl Sort for OptionSort {
 impl IntoSort for ValueOption {
     type Sort = OptionSort;
     fn store(self, sort: &Self::Sort) -> Option<Value> {
-        // clone might be expensive.
         let (i, _) = sort.options.lock().unwrap().insert_full(self.val);
         Some(Value {
             tag: sort.name,
@@ -223,18 +214,19 @@ mod tests {
                 (sort OptionInt (Option i64))
                 (sort OptionBool (Option bool))
                 (sort OptionIntVec (Vec OptionInt))
-                (let optionvec (vec-append (vec-empty) (vec-of (option-none))))
                 (let expr0 (option-some 1))
                 (let expr1 (option-some 2))
                 (let expr2 (option-some 3))
                 (let expr3 (option-some true))
                 (let expr4 (option-some false))
-                ; (check (!= expr1 expr2))
-                ; nones are always equal.
-                ; (check (= expr3 expr4))
+                ;;; just see if we can construct an option-none
+                (let optionvec (vec-of expr0 expr1 (option-none)))
+                (check (!= expr1 expr2))
+                (extract expr3)
                 "#,
             )
             .unwrap();
-        println!("outputs are {:?}", outputs);
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0], "(Some true)");
     }
 }
