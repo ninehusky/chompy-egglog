@@ -28,15 +28,6 @@ pub struct OptionSort {
 }
 
 impl OptionSort {
-    #[allow(dead_code)]
-    fn new(sort: ArcSort) -> Self {
-        Self {
-            name: "Option".into(),
-            element: sort,
-            options: IndexSet::new().into(),
-        }
-    }
-
     pub fn presort_names() -> Vec<Symbol> {
         vec!["option-some".into(), "option-none".into()]
     }
@@ -193,7 +184,7 @@ impl PrimitiveLike for OptionSome {
 
 #[cfg(test)]
 mod tests {
-    use crate::option::*;
+    use super::OptionSort;
 
     #[test]
     fn test_multiple_domains() {

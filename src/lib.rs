@@ -1,6 +1,6 @@
-pub mod option;
 pub mod rule;
 pub mod runner;
+pub mod sort;
 use egglog::ast::{Span, DUMMY_FILE};
 use lazy_static::lazy_static;
 
