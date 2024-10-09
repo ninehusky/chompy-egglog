@@ -1,2 +1,3 @@
-pub mod cvec;
 pub mod option;
+
+type Cost = usize;
