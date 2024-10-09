@@ -1,8 +1,8 @@
 use egglog::{
-    ast::{Expr, Span, SrcFile, Symbol},
+    ast::{Expr, Span, Symbol, DUMMY_FILE},
     constraint::SimpleTypeConstraint,
-    sort::{FromSort, IntoSort, Sort},
-    ArcSort, PrimitiveLike, Value,
+    sort::{FromSort, I64Sort, IntoSort, Sort, VecSort},
+    ArcSort, Error, NotFoundError, PrimitiveLike, TypeError, TypeInfo, Value,
 };
 
 use indexmap::IndexSet;
@@ -14,40 +14,71 @@ struct ValueOption {
     val: Option<Value>,
 }
 
-const DUMMY_FILENAME: &str = "internal.egg";
+impl Default for ValueOption {
+    fn default() -> Self {
+        Self { val: None }
+    }
+}
 
 lazy_static! {
-    pub static ref DUMMY_FILE: Arc<SrcFile> = Arc::new(SrcFile {
-        name: DUMMY_FILENAME.to_string(),
-        contents: None
-    });
     pub static ref DUMMY_SPAN: Span = Span(DUMMY_FILE.clone(), 0, 0);
 }
 
-/// for after meeting: i think i need one type for a some, one type for a none, and a sort for
-/// the option itself. but wait... i think the type inference for the some is tricky.
-
 #[derive(Debug)]
-pub struct OptionSort<T> {
+pub struct OptionSort {
     name: Symbol,
-    element: T,
+    element: ArcSort,
     pub options: Mutex<IndexSet<Option<Value>>>,
     pub state: Vec<String>,
 }
 
-impl OptionSort<ArcSort> {
+impl OptionSort {
     #[allow(dead_code)]
     fn new(sort: ArcSort) -> Self {
         Self {
-            name: format!("Option{}", sort.name()).into(),
+            name: format!("Option").into(),
             element: sort,
             options: IndexSet::new().into(),
             state: vec![],
         }
     }
+
+    pub fn presort_names() -> Vec<Symbol> {
+        vec!["option-some".into(), "option-none".into()]
+    }
+
+    pub fn make_sort(
+        typeinfo: &mut TypeInfo,
+        name: Symbol,
+        args: &[Expr],
+    ) -> Result<ArcSort, TypeError> {
+        if let [Expr::Var(span, e)] = args {
+            let e = typeinfo
+                .sorts
+                .get(e)
+                .ok_or(TypeError::UndefinedSort(*e, span.clone()))?;
+
+            if e.is_eq_container_sort() {
+                return Err(TypeError::DisallowedSort(
+                    name,
+                    "Sets nested with other EqSort containers are not allowed".into(),
+                    span.clone(),
+                ));
+            }
+
+            Ok(Arc::new(Self {
+                name,
+                element: e.clone(),
+                options: Mutex::new(IndexSet::new()),
+                state: vec![],
+            }))
+        } else {
+            panic!("Option sort must have sort as argument. Got {:?}", args)
+        }
+    }
 }
 
-impl Sort for OptionSort<ArcSort> {
+impl Sort for OptionSort {
     fn name(&self) -> Symbol {
         self.name
     }
@@ -83,9 +114,9 @@ impl Sort for OptionSort<ArcSort> {
     }
 
     fn register_primitives(self: Arc<Self>, info: &mut egglog::TypeInfo) {
-        println!("registering option-none-{}", self.element.name());
         info.add_primitive(OptionNone {
-            name: format!("option-none-{}", self.element.name()).into(),
+            name: format!("option-none").into(),
+            option: self.clone(),
         });
         info.add_primitive(OptionSome {
             name: "option-some".into(),
@@ -95,7 +126,7 @@ impl Sort for OptionSort<ArcSort> {
 }
 
 impl IntoSort for ValueOption {
-    type Sort = OptionSort<ArcSort>;
+    type Sort = OptionSort;
     fn store(self, sort: &Self::Sort) -> Option<Value> {
         // clone might be expensive.
         let (i, _) = sort.options.lock().unwrap().insert_full(self.val);
@@ -107,7 +138,7 @@ impl IntoSort for ValueOption {
 }
 
 impl FromSort for ValueOption {
-    type Sort = OptionSort<ArcSort>;
+    type Sort = OptionSort;
     fn load(sort: &Self::Sort, value: &Value) -> Self {
         ValueOption {
             val: sort
@@ -123,6 +154,7 @@ impl FromSort for ValueOption {
 
 struct OptionNone {
     name: Symbol,
+    option: Arc<OptionSort>,
 }
 
 impl PrimitiveLike for OptionNone {
@@ -131,26 +163,19 @@ impl PrimitiveLike for OptionNone {
     }
 
     fn get_type_constraints(&self, span: &Span) -> Box<dyn egglog::constraint::TypeConstraint> {
-        SimpleTypeConstraint::new(
-            self.name(),
-            vec![Arc::new(egglog::sort::UnitSort::new("OptionUnit".into()))],
-            span.clone(),
-        )
-        .into_box()
+        SimpleTypeConstraint::new(self.name(), vec![self.option.clone()], span.clone()).into_box()
     }
 
     fn apply(&self, values: &[Value], _egraph: Option<&mut egglog::EGraph>) -> Option<Value> {
         assert!(values.is_empty());
-        ValueOption { val: None }.store(&OptionSort::new(Arc::new(egglog::sort::UnitSort::new(
-            "Unit".into(),
-        ))))
+        ValueOption::default().store(&self.option)
     }
 }
 
 #[derive(Debug)]
 struct OptionSome {
     name: Symbol,
-    option: Arc<OptionSort<ArcSort>>,
+    option: Arc<OptionSort>,
 }
 
 impl PrimitiveLike for OptionSome {
@@ -180,98 +205,36 @@ mod tests {
     use crate::option::*;
 
     #[test]
-    fn test_i64_constructor() {
-        let mut egraph = egglog::EGraph::default();
-        egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::UnitSort::new("Unit".into()),
-            ))))
-            .unwrap();
-        egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::I64Sort::new("i64".into()),
-            ))))
-            .unwrap();
-        let outputs = egraph
-            .parse_and_run_program(
-                None,
-                r#"
-                (let expr1 (option-some 1))
-                (let expr2 (option-some 1))
-                (let expr3 (option-none-i64))
-                (check (= expr1 expr2))
-                "#,
-            )
-            .unwrap();
-        println!("outputs are {:?}", outputs);
-    }
-
-    #[test]
-    fn test_bool_constructor() {
-        let mut egraph = egglog::EGraph::default();
-        egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::UnitSort::new("Unit".into()),
-            ))))
-            .unwrap();
-        egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::BoolSort::new("bool".into()),
-            ))))
-            .unwrap();
-        let outputs = egraph
-            .parse_and_run_program(
-                None,
-                r#"
-                (let expr1 (option-some true))
-                (let expr2 (option-some false))
-                (let expr3 (option-none-bool))
-                (check (!= expr1 expr2))
-                "#,
-            )
-            .unwrap();
-        println!("outputs are {:?}", outputs);
-    }
-
-    #[test]
     fn test_multiple_domains() {
         let mut egraph = egglog::EGraph::default();
-        let mut sort = OptionSort::new(Arc::new(egglog::sort::UnitSort::new("Unit".into())));
-        sort.state.push("Unit".into());
-
-        let option_int_sort = Arc::new(OptionSort::new(Arc::new(egglog::sort::I64Sort::new(
-            "i64".into(),
-        ))));
-
         egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::UnitSort::new("Unit".into()),
-            ))))
-            .unwrap();
-        egraph.add_arcsort(option_int_sort.clone()).unwrap();
+            .type_info
+            .presorts
+            .insert("Option".into(), OptionSort::make_sort);
         egraph
-            .add_arcsort(Arc::new(OptionSort::new(Arc::new(
-                egglog::sort::I64Sort::new("bool".into()),
-            ))))
-            .unwrap();
+            .type_info
+            .presort_names
+            .extend(OptionSort::presort_names());
+
         let outputs = egraph
             .parse_and_run_program(
                 None,
                 r#"
+                (sort OptionInt (Option i64))
+                (sort OptionBool (Option bool))
+                (sort OptionIntVec (Vec OptionInt))
+                (let optionvec (vec-append (vec-empty) (vec-of (option-none))))
                 (let expr0 (option-some 1))
                 (let expr1 (option-some 2))
                 (let expr2 (option-some 3))
                 (let expr3 (option-some true))
                 (let expr4 (option-some false))
-                (let expr5 (option-none-i64))
-                (let expr6 (option-none-bool))
                 ; (check (!= expr1 expr2))
                 ; nones are always equal.
                 ; (check (= expr3 expr4))
                 "#,
             )
             .unwrap();
-        println!("option int sort state is {:?}", option_int_sort.options);
         println!("outputs are {:?}", outputs);
     }
 }
