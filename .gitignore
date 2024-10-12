@@ -24,4 +24,7 @@ Cargo.lock
 
 /target
 
+# Don't include e-graph visualizations
+*.svg
+
 diary.md
