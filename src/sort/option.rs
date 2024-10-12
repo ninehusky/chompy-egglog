@@ -86,16 +86,30 @@ impl Sort for OptionSort {
     fn make_expr(&self, egraph: &egglog::EGraph, value: Value) -> (Cost, Expr) {
         let option = ValueOption::load(self, &value);
         match option.val {
-            None => (1, Expr::Call(DUMMY_SPAN.clone(), "None".into(), vec![])),
+            None => (
+                1,
+                Expr::Call(DUMMY_SPAN.clone(), "option-none".into(), vec![]),
+            ),
             Some(value) => {
                 self.options.lock().unwrap().insert(Some(value));
                 let (cost, expr) = self.element.make_expr(egraph, value);
                 (
                     cost + 1,
-                    Expr::Call(DUMMY_SPAN.clone(), "Some".into(), vec![expr]),
+                    Expr::Call(DUMMY_SPAN.clone(), "option-some".into(), vec![expr]),
                 )
             }
         }
+    }
+
+    fn inner_values(&self, value: &Value) -> Vec<(ArcSort, Value)> {
+        // TODO: Potential duplication of code
+        let options = self.options.lock().unwrap();
+        let option = options.get_index(value.bits as usize).unwrap();
+        let mut result = Vec::new();
+        for e in option.iter() {
+            result.push((self.element.clone(), *e));
+        }
+        result
     }
 
     fn register_primitives(self: Arc<Self>, info: &mut egglog::TypeInfo) {
@@ -217,10 +231,14 @@ mod tests {
                 (let optionvec (vec-of expr0 expr1 (option-none)))
                 (check (!= expr1 expr2))
                 (extract expr3)
+                (relation HasOption (i64 OptionInt))
+                (HasOption 1 (option-none))
                 "#,
             )
             .unwrap();
         assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "(Some true)");
+        assert_eq!(outputs[0], "(option-some true)");
+        let serialized = egraph.serialize(egglog::SerializeConfig::default());
+        serialized.to_svg_file("option.svg").unwrap();
     }
 }

@@ -11,9 +11,10 @@ use egglog::{
 
 #[derive(Debug)]
 pub struct RuleSort {
-    name: Symbol,
-    language: ArcSort,
-    predicate_language: ArcSort,
+    // TODO: make private
+    pub name: Symbol,
+    pub language: ArcSort,
+    pub predicate_language: ArcSort,
     // condition, (lhs, rhs)
     pub rules: Mutex<IndexSet<(Option<Value>, Value, Value)>>,
 }

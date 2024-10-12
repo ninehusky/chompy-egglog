@@ -1,259 +1,156 @@
-  ;;; A binary operation.
-(datatype Fn
-   (Add)
-   (Sub)
-   (Mul)
-   (Div))
+;;; the sorts "Math" and "Pred"
+;;; should already be predefined.
 
-(datatype PredFn
+(datatype PredOp
     (Eq)
     (Neq))
 
-;;; The root term language we're using.
-(datatype Math
-  (Num i64)
-  (Var String)
-  (Op2 Fn Math Math))
+(function PredOp2 (PredOp Math Math) Pred)
 
-;;; predicates!
-(datatype Pred
-     ;;; Just a term across two math exprs, e.g. "(Op2 (Eq) (Var "x") (Var "y"))".
-     (PredOp2 PredFn Math Math))
+(datatype MathOp
+    (Add)
+    (Sub)
+    (Mul)
+    (Div)
+    (Abs))
 
-(datatype PredCvec
-  (PredNil)
-  (PredCons bool PredCvec))
+(function Num (i64) Math)
+(function Var (String) Math)
 
-;;; Cvecs ;;;
-(datatype CvecElement
+(function MathOp1 (MathOp Math) Math)
+(function MathOp2 (MathOp Math Math) Math)
+
+;;; cvecs
+
+(datatype OptionI64
   (None)
   (Some i64))
 
-(datatype Cvec
-  (Nil)
-  (Cons CvecElement Cvec))
+(datatype MathCvec
+   (MathNil)
+   (MathCons OptionI64 MathCvec))
 
-(relation HasCvec (Math Cvec))
+(relation HasMathCvec (Math MathCvec))
+
+(sort OptionBool (Option bool))
+(datatype PredCvec
+   (PredNil)
+   (PredCons OptionBool PredCvec))
 
 (relation HasPredCvec (Pred PredCvec))
 
-;;; Equivalence by interpreter.
-
-; (rule
-;  ((HasCvec ?e1 ?cvec)
-;   (HasCvec ?e2 ?cvec)
-;   (!= ?e1 ?e2))
-;  ((union ?e1 ?e2)))
-
-;;; The interpreter from Math -> Cvec.
-;;; base rules:
-;;; (rule
-;;;  	((Num ?n))
-;;;  	((HasCvec (Num ?n) (Cons (Some ?n) (Cons (Some ?n) (Cons (Some ?n) (Nil)))))))
-;;; 
-;;; (rule
-;;;  	((Var ?x))
-;;;  	((HasCvec (Var ?x) (Cons (Some 0) (Cons (Some 1) (Cons (Some 2) (Nil)))))))
-
-;;; Fn -> child_cvec -> child_cvec -> my_cvec
-(function zip2 (Fn Cvec Cvec) Cvec)
-
-
-;;; PredFn -> term_cvec -> term_cvec -> result_cvec: vec<bool>
-(function predzip2 (PredFn Cvec Cvec) PredCvec)
-
-(rule
- ((predzip2 ?fn (Nil) (Cons (Some ?blah) ?tail)))
- ((panic "predzip: unequal cvec lengths")))
+;;; maps over cvecs
+(function applyMathOp1 (MathOp MathCvec) MathCvec)
+(function applyMathOp2 (MathOp MathCvec MathCvec) MathCvec)
+(function applyPredOp2 (PredOp MathCvec MathCvec) PredCvec)
 
 (rewrite
- (predzip2 ?fn (Nil) (Nil))
- (PredNil))
-
-(rule
- ((predzip2 (Eq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-  (= ?n ?m))
- ((union (predzip2 (Eq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-         (PredCons true (predzip2 (Eq) ?tail1 ?tail2)))))
-
-(rule
- ((predzip2 (Eq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-  (!= ?n ?m))
- ((union (predzip2 (Eq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-         (PredCons false (predzip2 (Eq) ?tail1 ?tail2)))))
-
-(rule
- ((predzip2 (Neq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-  (!= ?n ?m))
- ((union (predzip2 (Neq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-         (PredCons true (predzip2 (Neq) ?tail1 ?tail2)))))
-
-(rule
- ((predzip2 (Neq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-  (= ?n ?m))
- ((union (predzip2 (Neq)
-            (Cons ?n ?tail1)
-            (Cons ?m ?tail2))
-         (PredCons false (predzip2 (Neq) ?tail1 ?tail2)))))
-
-(rule
- ((PredOp2 ?op ?term1 ?term2)
-  (HasCvec ?term1 ?cvec1)
-  (HasCvec ?term2 ?cvec2))
- ((HasPredCvec (PredOp2 ?op ?term1 ?term2)
-               (predzip2 ?op ?cvec1 ?cvec2))))
-
-
-(rule
- ((zip2 ?fn (Nil) (Cons (Some ?blah) ?tail)))
- ((panic "zip: unequal cvec lengths")))
-
+  (applyMathOp2 ?op (MathNil) (MathNil))
+  (MathNil))
 
 (rewrite
- (zip2 ?fn (Nil) (Nil))
- (Nil))
-
-(rewrite
- (zip2
-  (Add)
-  (Cons (Some ?n1) ?tail1)
-  (Cons (Some ?n2) ?tail2))
- (Cons (Some (+ ?n1 ?n2))
-       (zip2 (Add) ?tail1 ?tail2)))
-
-(rewrite
- (zip2
-  (Sub)
-  (Cons (Some ?n1) ?tail1)
-  (Cons (Some ?n2) ?tail2))
- (Cons (Some (- ?n1 ?n2))
-       (zip2 (Sub) ?tail1 ?tail2)))
-
-(rewrite
- (zip2
-  (Mul)
-  (Cons (Some ?n1) ?tail1)
-  (Cons (Some ?n2) ?tail2))
- (Cons (Some (* ?n1 ?n2))
-       (zip2 (Mul) ?tail1 ?tail2)))
+  (applyPredOp2 ?op (MathNil) (MathNil))
+  (PredNil))
 
 (rule
- ((zip2
-  (Div)
-  (Cons (Some ?n1) ?tail1)
-  (Cons (Some ?n2) ?tail2))
-  (!= ?n2 0))
- ((union
-  (zip2
-   (Div)
-   (Cons (Some ?n1) ?tail1)
-   (Cons (Some ?n2) ?tail2))
-   (Cons (Some (/ ?n1 ?n2))
-       (zip2 (Div) ?tail1 ?tail2)))))
-
-(rewrite
- (zip2
-  (Div)
-  (Cons (Some ?n1) ?tail1)
-  (Cons (Some 0) ?tail2))
- (Cons (None)
-       (zip2 (Div) ?tail1 ?tail2)))
+  ((applyMathOp2 ?fn (MathNil) (MathCons ?head ?tail)))
+  ((panic "applyMathOp2: unequal cvec lengths")))
 
 (rule
- ((Op2 ?op ?e1 ?e2)
-  (HasCvec ?e1 ?cvec1)
-  (HasCvec ?e2 ?cvec2))
- ((HasCvec
-  (Op2 ?op ?e1 ?e2)
-  (zip2 ?op ?cvec1 ?cvec2))))
+  ((applyMathOp2 ?fn (MathCons ?head ?tail) (MathNil)))
+  ((panic "applyMathOp2: unequal cvec lengths")))
 
+;;; math rules:
 
-;;; potential rules.
-
-(relation Rule (Math Math))
-(relation CondRule (Pred Math Math))
-
-(rule
- ((HasCvec ?term1 ?cvec)
-  (HasCvec ?term2 ?cvec)
-  (!= ?term1 ?term2))
- ((Rule ?term1 ?term2)))
-
-;;; conditional rules.
-
-(relation HasMatch (PredCvec Cvec Cvec))
-
-;; handle the base case.
-(HasMatch (PredNil) (Nil) (Nil))
-
-;; recursive case: p1 -> (c1 == c2)
+(rule ((Num ?n)) ((HasMathCvec (Num ?n)
+    (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathCons (Some ?n)
+      (MathNil))))))))))))))
 
 (rule
- ((PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2)
-  (= ?p1 true)
-  (= ?c1 ?c2)
-  (HasMatch ?ptail ?tail1 ?tail2))
- ((HasMatch
-  (PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2))))
-
-;; recursive case: !p1 -> (c1 != c2)
-(rule
- ((PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2)
-  (!= ?p1 true)
-  (!= ?c1 ?c2)
-  (HasMatch ?ptail ?tail1 ?tail2))
- ((HasMatch
-  (PredCons ?p1 ?ptail)
-  (Cons ?c1 ?tail1)
-  (Cons ?c2 ?tail2))))
+  ((Var ?v))
+  ((HasMathCvec (Var ?v)
+    (MathCons (Some -5)
+      (MathCons (Some -4)
+      (MathCons (Some -3)
+      (MathCons (Some -2)
+      (MathCons (Some -1)
+      (MathCons (Some 0)
+      (MathCons (Some 1)
+      (MathCons (Some 2)
+      (MathCons (Some 3)
+      (MathCons (Some 4)
+      (MathNil))))))))))))))
 
 (rule
- ((HasCvec ?t1 ?c1)
-  (HasCvec ?t2 ?c2)
-  (HasPredCvec ?pred ?p1)
-  (HasMatch ?p1 ?c1 ?c2))
- ((CondRule ?pred ?t1 ?t2)))
+  ((MathOp2 ?op ?term1 ?term2)
+   (HasMathCvec ?term1 ?cvec1)
+   (HasMathCvec ?term2 ?cvec2))
+  ((HasMathCvec (MathOp2 ?op ?term1 ?term2)
+   (applyMathOp2 ?op ?cvec1 ?cvec2))))
 
-(ruleset
- cleanup)
+ (rewrite
+   (applyMathOp2 (Add)
+     (MathCons (Some ?n) ?tail1)
+     (MathCons (Some ?m) ?tail2))
+   (MathCons (Some (+ ?n ?m))
+     (applyMathOp2 (Add) ?tail1 ?tail2)))
 
+ (rewrite
+   (applyMathOp2 (Sub)
+     (MathCons (Some ?n) ?tail1)
+     (MathCons (Some ?m) ?tail2))
+   (MathCons (Some (- ?n ?m))
+     (applyMathOp2 (Sub) ?tail1 ?tail2)))
+
+ (rewrite
+   (applyMathOp2 (Mul)
+     (MathCons (Some ?n) ?tail1)
+     (MathCons (Some ?m) ?tail2))
+   (MathCons (Some (* ?n ?m))
+     (applyMathOp2 (Mul) ?tail1 ?tail2)))
+
+ (rule
+   ((applyMathOp2 (Div)
+     (MathCons (Some ?n) ?tail1)
+     (MathCons (Some ?m) ?tail2))
+     (!= ?m 0))
+   ((union
+       (applyMathOp2 (Div)
+         (MathCons (Some ?n) ?tail1)
+         (MathCons (Some ?m) ?tail2))
+       (MathCons (Some (/ ?n ?m))
+         (applyMathOp2 (Div) ?tail1 ?tail2)))))
+
+ (rule
+   ((applyMathOp2 (Div)
+     (MathCons (Some ?n) ?tail1)
+     (MathCons (Some ?m) ?tail2))
+     (= ?m 0))
+   ((union
+       (applyMathOp2 (Div)
+         (MathCons (Some ?n) ?tail1)
+         (MathCons (Some ?m) ?tail2))
+       (MathCons (None)
+         (applyMathOp2 (Div) ?tail1 ?tail2)))))
+
+;;; predicate rules:
+
+;;; find non-conditional rules.
 (rule
-  ((zip2 ?op ?e1 ?e2))
-  ((delete (zip2 ?op ?e1 ?e2)))
-  :ruleset cleanup)
+  ((HasMathCvec ?a ?cvec)
+   (HasMathCvec ?b ?cvec)
+   (!= ?a ?b))
+  ((Rule ?a ?b)))
 
-(rule
-  ((predzip2 ?op ?e1 ?e2))
-  ((delete (predzip2 ?op ?e1 ?e2)))
-  :ruleset cleanup)
-
-(rule
-  ((HasMatch ?blah ?blah1 ?blah2))
-  ((delete (HasMatch ?blah ?blah1 ?blah2)))
-  :ruleset cleanup)
-
-
-; (run cleanup 100)
-
-
-
+(let expr1 (MathOp2 (Add) (Num 1) (Var "x")))
+(let expr2 (MathOp2 (Add) (Var "x") (Num 1)))
+(run 10000)
