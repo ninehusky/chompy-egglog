@@ -1,5 +1,5 @@
 use egglog::{
-    ast::{Expr, Span, Symbol},
+    ast::{Expr, Literal, Span, Symbol},
     constraint::SimpleTypeConstraint,
     sort::{FromSort, IntoSort, Sort},
     ArcSort, PrimitiveLike, TypeError, TypeInfo, Value,
@@ -83,12 +83,22 @@ impl Sort for OptionSort {
         self.element.is_eq_sort()
     }
 
+    fn serialized_name(&self, _value: &Value) -> Symbol {
+        "Option".into()
+    }
+
     fn make_expr(&self, egraph: &egglog::EGraph, value: Value) -> (Cost, Expr) {
         let option = ValueOption::load(self, &value);
         match option.val {
             None => (
-                1,
-                Expr::Call(DUMMY_SPAN.clone(), "option-none".into(), vec![]),
+                1 + 1,
+                Expr::call_no_span(
+                    "option-none",
+                    vec![Expr::Lit(
+                        DUMMY_SPAN.clone(),
+                        Literal::String("None".into()),
+                    )],
+                ),
             ),
             Some(value) => {
                 self.options.lock().unwrap().insert(Some(value));
@@ -105,11 +115,10 @@ impl Sort for OptionSort {
         // TODO: Potential duplication of code
         let options = self.options.lock().unwrap();
         let option = options.get_index(value.bits as usize).unwrap();
-        let mut result = Vec::new();
-        for e in option.iter() {
-            result.push((self.element.clone(), *e));
+        match option {
+            None => vec![],
+            Some(value) => vec![(self.element.clone(), value.clone())],
         }
-        result
     }
 
     fn register_primitives(self: Arc<Self>, info: &mut egglog::TypeInfo) {
@@ -201,6 +210,51 @@ impl PrimitiveLike for OptionSome {
 #[cfg(test)]
 mod tests {
     use super::OptionSort;
+
+    #[test]
+    fn test_bad_example() {
+        let mut egraph = egglog::EGraph::default();
+        egraph
+            .type_info
+            .presorts
+            .insert("Option".into(), OptionSort::make_sort);
+        egraph
+            .type_info
+            .presort_names
+            .extend(OptionSort::presort_names());
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (sort OptionInt (Option i64))
+                (datatype List
+                  (Nil)
+                  (Cons OptionInt List))
+
+                (function mapadd (List) List)
+
+                (rule
+                  ((mapadd (Nil)))
+                  ((Nil)))
+
+                (rule
+                  ((mapadd (Cons (option-some ?x) ?xs)))
+                  ((Cons (option-some (+ ?x 1)) (mapadd ?xs))))
+
+                (rule
+                  ((mapadd (Cons (option-none) ?xs)))
+                  ((Cons (option-none) (mapadd ?xs))))
+
+                (mapadd (Cons (option-some 1) (Cons (option-none) (Nil))))
+
+                (run 100)
+                "#,
+            )
+            .unwrap();
+        let serialized = egraph.serialize(egglog::SerializeConfig::default());
+        serialized.to_svg_file("option-bad.svg").unwrap();
+    }
 
     #[test]
     fn test_multiple_domains() {
