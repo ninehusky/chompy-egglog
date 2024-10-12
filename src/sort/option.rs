@@ -9,6 +9,8 @@ use crate::DUMMY_SPAN;
 use indexmap::IndexSet;
 use std::sync::{Arc, Mutex};
 
+use crate::Cost;
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ValueOption {
     val: Option<Value>,
@@ -81,7 +83,7 @@ impl Sort for OptionSort {
         self.element.is_eq_sort()
     }
 
-    fn make_expr(&self, egraph: &egglog::EGraph, value: Value) -> (usize, Expr) {
+    fn make_expr(&self, egraph: &egglog::EGraph, value: Value) -> (Cost, Expr) {
         let option = ValueOption::load(self, &value);
         match option.val {
             None => (1, Expr::Call(DUMMY_SPAN.clone(), "None".into(), vec![])),
@@ -205,6 +207,7 @@ mod tests {
                 (sort OptionInt (Option i64))
                 (sort OptionBool (Option bool))
                 (sort OptionIntVec (Vec OptionInt))
+                (sort OptionBoolVec (Vec OptionBool))
                 (let expr0 (option-some 1))
                 (let expr1 (option-some 2))
                 (let expr2 (option-some 3))

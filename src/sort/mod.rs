@@ -1,3 +1,5 @@
-pub mod option;
+use egglog::EGraph;
+use ruler::Symbol;
 
-type Cost = usize;
+pub mod option;
+pub mod rule;
