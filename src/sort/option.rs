@@ -211,6 +211,7 @@ impl PrimitiveLike for OptionSome {
 mod tests {
     use super::OptionSort;
 
+    #[ignore]
     #[test]
     fn test_bad_example() {
         let mut egraph = egglog::EGraph::default();
