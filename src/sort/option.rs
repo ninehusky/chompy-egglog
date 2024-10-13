@@ -210,7 +210,7 @@ impl PrimitiveLike for OptionSome {
 #[cfg(test)]
 mod tests {
     use super::OptionSort;
-
+    // TODO(@ninehusky): Dig into why this doesn't work.
     #[ignore]
     #[test]
     fn test_bad_example() {

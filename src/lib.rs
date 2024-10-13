@@ -1,4 +1,3 @@
-pub mod language;
 pub mod sort;
 
 use egglog::{
