@@ -26,5 +26,6 @@ Cargo.lock
 
 # Don't include e-graph visualizations
 *.svg
+*output.txt
 
 diary.md

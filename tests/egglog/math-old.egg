@@ -281,11 +281,3 @@
 ;   ((HasMatch ?blah ?blah1 ?blah2))
 ;   ((delete (HasMatch ?blah ?blah1 ?blah2)))
 ;   :ruleset cleanup)
-
-(Var "x")
-(Num 0)
-(Num 1)
-(MathOp2 (Div) (Var "x") (Var "x"))
-(PredOp2 (Neq) (Var "x") (Num 0))
-
-(run 100)
