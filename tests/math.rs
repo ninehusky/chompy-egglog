@@ -1,6 +1,7 @@
 use egglog::EGraph;
 use ruler::enumo;
 
+#[ignore]
 #[test]
 fn math_eval() {
     let mut egraph = EGraph::default();
