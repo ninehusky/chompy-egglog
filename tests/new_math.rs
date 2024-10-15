@@ -31,6 +31,8 @@ fn cvec_match(
     let ec_keys = eclass_term_map.keys().into_iter();
     for i in 0..ec_keys.len() {
         for j in i + 1..ec_keys.len() {
+            // TODO: check if we merged these in an earlier step
+
             let ec1 = ec_keys.clone().nth(i).unwrap();
             let ec2 = ec_keys.clone().nth(j).unwrap();
             let term1 = eclass_term_map.get(ec1).unwrap();
@@ -38,6 +40,11 @@ fn cvec_match(
             // TODO: @ninehusky: re-implement the memoization stuff
             let cvec1 = get_cvec(&term1.to_string());
             let cvec2 = get_cvec(&term2.to_string());
+
+            if cvec1.iter().all(|x| x.is_none()) && cvec2.iter().all(|x| x.is_none()) {
+                // prune cvecs which don't really matter
+                continue;
+            }
 
             if cvec1 == cvec2 {
                 result.non_conditional.push(Rule {
@@ -52,21 +59,28 @@ fn cvec_match(
                 });
             } else {
                 let mut has_meaningful_diff = false;
-                let mut differences: Vec<bool> = vec![];
+                let mut same_vals: Vec<bool> = vec![];
                 for (cvec_1_el, cvec_2_el) in cvec1.iter().zip(cvec2.iter()) {
                     if cvec_1_el != cvec_2_el {
                         if cvec_1_el.is_some() || cvec_2_el.is_some() {
                             has_meaningful_diff = true;
                         }
                     }
-                    differences.push(cvec_1_el == cvec_2_el);
+                    same_vals.push(cvec_1_el == cvec_2_el);
                 }
 
                 if !has_meaningful_diff {
                     continue;
                 }
 
-                if let Some(preds) = mask_to_preds.get(&differences) {
+                // get the number of things that match
+                let matching_count = same_vals.iter().filter(|&x| *x).count();
+
+                if matching_count < 2 {
+                    continue;
+                }
+
+                if let Some(preds) = mask_to_preds.get(&same_vals) {
                     for pred in preds {
                         result.conditional.push(Rule {
                             condition: Some(Sexp::from_str(pred).unwrap()),
@@ -238,9 +252,34 @@ fn get_pred_to_cvec(
     Ok(())
 }
 
+fn add_predicates_to_egraph(
+    egraph: &mut EGraph,
+    mask_to_preds: &HashMap<Vec<bool>, HashSet<String>>,
+) {
+    for (_, preds) in mask_to_preds {
+        let mut add_preds_prog = String::new();
+        let original_pred = preds.iter().nth(0).unwrap().to_string();
+        for (i, pred) in preds.iter().enumerate() {
+            add_preds_prog += format!(
+                r#"
+            {pred}
+            (union {pred} {original_pred})
+            "#
+            )
+            .replace("quote", "\"")
+            .as_str();
+        }
+        egraph.parse_and_run_program(None, &add_preds_prog).unwrap();
+        let serialized = egraph.serialize(egglog::SerializeConfig::default());
+        serialized
+            .to_svg_file("new_math_pred_eclasses.svg")
+            .unwrap();
+    }
+}
+
 #[test]
 fn new_math_eval() {
-    const MAX_DEPTH: usize = 5;
+    const MAX_DEPTH: usize = 1;
     let mut egraph = egglog::EGraph::default();
     egraph
         .parse_and_run_program(
@@ -252,11 +291,24 @@ fn new_math_eval() {
           (Mul)
           (Div)
           (Abs))
+
         (datatype Math
           (Num i64)
           (Var String)
           (MathOp1 MathFn Math)
           (MathOp2 MathFn Math Math))
+
+        (datatype PredFn
+          (Eq)
+          (Neq)
+          (Gt)
+          (Ge)
+          (Lt))
+
+        (datatype Pred
+          (PredOp2 PredFn Math Math))
+
+        (relation cond-equal (Pred Math Math))
 
         (function eclass (Math) i64 :merge (min old new))
 
@@ -282,6 +334,8 @@ fn new_math_eval() {
     let mut pred_egraph = egglog::EGraph::default();
     let mut mask_to_preds = HashMap::default();
     get_pred_to_cvec(&mut pred_egraph, atoms.clone(), &mut mask_to_preds).unwrap();
+
+    add_predicates_to_egraph(&mut egraph, &mask_to_preds);
 
     let unary_fns = enumo::Workload::new(&["(Abs)"]);
     let binary_fns = enumo::Workload::new(&["(Add)", "(Sub)", "(Mul)", "(Div)"]);
@@ -367,7 +421,25 @@ fn new_math_eval() {
             let conditional = rule.condition.unwrap().to_string();
             let lhs = rule.lhs.to_string();
             let rhs = rule.rhs.to_string();
+            let cond_equal_statement = r#"
+                (cond-equal {conditional} {lhs} {rhs})
+            "#
+            .replace(
+                "{conditional}",
+                &conditional.replace("quoteaquote", "\"a\""),
+            )
+            .replace("{lhs}", &lhs.replace(" a ", "\"a\""))
+            .replace("{rhs}", &rhs.replace(" a ", "\"a\""));
 
+            let already_inside =
+                egraph.parse_and_run_program(None, r#"(extract {cond_equal_statement})"#);
+
+            if already_inside.is_ok() {
+                continue;
+            }
+            egraph
+                .parse_and_run_program(None, &cond_equal_statement)
+                .unwrap();
             println!("if {} then {} ~> {}", conditional, lhs, rhs);
         }
 
@@ -377,23 +449,37 @@ fn new_math_eval() {
         last_term_set = new_term_set;
     }
 
-    let outputs = egraph
+    egraph
         .parse_and_run_program(None, "(run eclass-report 20)")
         .unwrap();
 
-    // let eclass_1 = egraph
-    //     .parse_and_run_program(None, "(extract (eclass (Num 1)))")
-    //     .unwrap();
-    // let eclass_2 = egraph
-    //     .parse_and_run_program(None, "(extract (eclass (MathOp2 (Div) (Num 1) (Num 1))))")
-    //     .unwrap();
+    // check that we can find rule:
+    // if a != 0 then a / a = 1
+    egraph
+        .parse_and_run_program(None,
+            "(check (cond-equal (PredOp2 (Neq) (Var \"a\") (Num 0)) (MathOp2 (Div) (Var \"a\") (Var \"a\")) (Num 1)))")
+        .unwrap();
 
-    // egraph
-    //     .parse_and_run_program(
-    //         None,
-    //         "(check (= (eclass (Num 1)) (eclass (MathOp2 (Div) (Num 1) (Num 1)))))",
-    //     )
-    //     .unwrap();
+    // if a >= 0 then abs(a) = a
+    egraph
+        .parse_and_run_program(None,
+            "(check (cond-equal (PredOp2 (Ge) (Var \"a\") (Num 0)) (MathOp1 (Abs) (Var \"a\")) (Var \"a\")))")
+        .unwrap();
+
+    // check we didn't include a bad rule:
+    // if a < 1 then abs(a) = a
+    egraph
+        .parse_and_run_program(None,
+            "(fail (check (cond-equal (PredOp2 (Lt) (Var \"a\") (Num 1)) (MathOp1 (Abs) (Var \"a\")) (Var \"a\"))))")
+        .unwrap();
+
+    // dummy non-conditional equality check
+    egraph
+        .parse_and_run_program(
+            None,
+            "(check (= (eclass (Num 1)) (eclass (MathOp2 (Div) (Num 1) (Num 1)))))",
+        )
+        .unwrap();
 
     let serialized = egraph.serialize(egglog::SerializeConfig::default());
     serialized.to_svg_file("new_math.svg").unwrap();

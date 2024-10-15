@@ -1,0 +1,9 @@
+(datatype PredFn
+   (Eq)
+   (Neq)
+   (Lt)
+   (Gt))
+
+(datatype Pred
+   (PredOp2 PredFn Math Math))
+
