@@ -270,10 +270,6 @@ fn add_predicates_to_egraph(
             .as_str();
         }
         egraph.parse_and_run_program(None, &add_preds_prog).unwrap();
-        let serialized = egraph.serialize(egglog::SerializeConfig::default());
-        serialized
-            .to_svg_file("new_math_pred_eclasses.svg")
-            .unwrap();
     }
 }
 
@@ -479,7 +475,4 @@ fn math_eval() {
             "(check (= (eclass (Num 1)) (eclass (MathOp2 (Div) (Num 1) (Num 1)))))",
         )
         .unwrap();
-
-    let serialized = egraph.serialize(egglog::SerializeConfig::default());
-    serialized.to_svg_file("new_math.svg").unwrap();
 }
