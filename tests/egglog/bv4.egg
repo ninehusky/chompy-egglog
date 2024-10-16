@@ -1,0 +1,49 @@
+(sort Pred)
+
+
+;;; used for atoms: if you want to make a bitvector of
+;;; variable width and constant value, you would do:
+;;; (let TWO (BVConstant (ValueVar "mywidth") (ValueNum 2)))
+(datatype BVValue
+   (ValueVar String)
+   (ValueNum i64))
+
+(datatype BVOp
+   (Lhs)
+   (Rhs)
+   (Add)
+   (Sub)
+   (Neg)
+   (Mul)
+   (Not)
+   (Concat)
+   (Lt)
+   (Gt)
+   (Sum))
+
+;;; forward definition
+(sort BVTerm)
+
+(sort BVTermVec (Vec BVTerm))
+
+(function Bitvector (BVValue BVValue) BVTerm)
+(function BVOp1 (BVValue BVOp BVTerm) BVTerm)
+(function BVOp2 (BVValue BVOp BVTerm BVTerm) BVTerm)
+(function BVOp3 (BVValue BVOp BVTerm BVTerm BVTerm) BVTerm)
+(function BVOpn (BVValue BVOp BVTermVec) BVTerm)
+
+(relation cond-equal (Pred BVTerm BVTerm))
+
+(function eclass (BVTerm) i64 :merge (min old new))
+
+(ruleset eclass-report)
+(ruleset non-cond-rewrites)
+(ruleset cond-rewrites)
+
+(rule
+  ((eclass ?bvterm))
+  ((extract "eclass:")
+   (extract (eclass ?bvterm))
+   (extract "candidate term:")
+   (extract ?bvterm))
+   :ruleset eclass-report)
