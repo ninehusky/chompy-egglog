@@ -1,16 +1,12 @@
-(sort Pred)
+;;; term language
 
-
-;;; used for atoms: if you want to make a bitvector of
-;;; variable width and constant value, you would do:
-;;; (let TWO (BVConstant (ValueVar "mywidth") (ValueNum 2)))
 (datatype BVValue
    (ValueVar String)
    (ValueNum i64))
 
 (datatype BVOp
-   (Lhs)
-   (Rhs)
+   (Shl)
+   (Shr)
    (Add)
    (Sub)
    (Neg)
@@ -21,7 +17,6 @@
    (Gt)
    (Sum))
 
-;;; forward definition
 (sort BVTerm)
 
 (sort BVTermVec (Vec BVTerm))
@@ -32,9 +27,18 @@
 (function BVOp3 (BVValue BVOp BVTerm BVTerm BVTerm) BVTerm)
 (function BVOpn (BVValue BVOp BVTermVec) BVTerm)
 
+;;; predicates
+(sort Pred)
+
+(datatype PredOp
+  (Le))
+
+(function PredOp2 (PredOp BVValue BVValue) Pred)
+
 (relation cond-equal (Pred BVTerm BVTerm))
 
 (function eclass (BVTerm) i64 :merge (min old new))
+(function pred-eclass (Pred) i64 :merge (min old new))
 
 (ruleset eclass-report)
 (ruleset non-cond-rewrites)

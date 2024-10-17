@@ -1,30 +1,30 @@
 use egglog::EGraph;
-use ruler::{HashMap, HashSet};
+use ruler::{HashMap, HashSet, ValidationResult};
 
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::str::FromStr;
 
-use ruler::enumo::Sexp;
+use ruler::enumo::{Sexp, Workload};
 
 pub type Constant<R> = <R as Chomper>::Constant;
 pub type CVec<R> = Vec<Option<<R as Chomper>::Constant>>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Rule {
-    condition: Option<Sexp>,
-    lhs: Sexp,
-    rhs: Sexp,
+    pub condition: Option<Sexp>,
+    pub lhs: Sexp,
+    pub rhs: Sexp,
 }
 pub struct Rules {
-    non_conditional: Vec<Rule>,
-    conditional: Vec<Rule>,
+    pub non_conditional: Vec<Rule>,
+    pub conditional: Vec<Rule>,
 }
 
 pub trait Chomper {
     type Constant: Debug + Clone + Eq + Hash;
 
-    fn get_eclass_term_map(egraph: &mut EGraph) -> HashMap<i64, Sexp> {
+    fn get_eclass_term_map(&self, egraph: &mut EGraph) -> HashMap<i64, Sexp> {
         let mut outputs = egraph
             .parse_and_run_program(
                 None,
@@ -50,18 +50,21 @@ pub trait Chomper {
     }
 
     fn cvec_match(
-        eclass_term_map: &HashMap<i64, Sexp>,
-        mask_to_preds: &HashMap<Vec<bool>, HashSet<Sexp>>,
+        &mut self,
+        egraph: &mut EGraph,
+        mask_to_preds: &HashMap<Vec<bool>, HashSet<String>>,
     ) -> Rules {
         let mut result = Rules {
             non_conditional: vec![],
             conditional: vec![],
         };
+
+        let eclass_term_map: HashMap<i64, Sexp> = self.get_eclass_term_map(egraph);
         let ec_keys: Vec<&i64> = eclass_term_map.keys().into_iter().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
             let term1 = eclass_term_map.get(&ec1).unwrap();
-            let cvec1 = Self::interpret_term(&term1);
+            let cvec1 = self.interpret_term(&term1);
             if cvec1.iter().all(|x| x.is_none()) {
                 // ignore cvecs which don't really matter
                 continue;
@@ -70,7 +73,7 @@ pub trait Chomper {
                 // TODO: check if we merged ec1 and ec2 in an earlier step?
                 let ec2 = ec_keys[j];
                 let term2 = eclass_term_map.get(ec2).unwrap();
-                let cvec2 = Self::interpret_term(&term2);
+                let cvec2 = self.interpret_term(&term2);
 
                 if cvec2.iter().all(|x| x.is_none()) {
                     continue;
@@ -112,15 +115,27 @@ pub trait Chomper {
                         continue;
                     }
 
-                    if let Some(preds) = mask_to_preds.get(&same_vals) {
+                    // we want sufficient conditions, not sufficent and necessary.
+                    let masks = mask_to_preds.keys().into_iter().filter(|mask| {
+                        mask.iter()
+                            .zip(same_vals.iter())
+                            .all(|(mask_val, same_val)| {
+                                // pred --> lhs == rhs
+                                // pred OR not lhs == rhs
+                                *mask_val || !(same_val)
+                            })
+                    });
+
+                    for mask in masks {
+                        let preds = mask_to_preds.get(mask).unwrap();
                         for pred in preds {
                             result.conditional.push(Rule {
-                                condition: Some(pred.clone()),
+                                condition: Some(Sexp::from_str(pred).unwrap()),
                                 lhs: term1.clone(),
                                 rhs: term2.clone(),
                             });
                             result.conditional.push(Rule {
-                                condition: Some(pred.clone()),
+                                condition: Some(Sexp::from_str(pred).unwrap()),
                                 lhs: term2.clone(),
                                 rhs: term1.clone(),
                             });
@@ -132,5 +147,11 @@ pub trait Chomper {
         result
     }
 
-    fn interpret_term(term: &ruler::enumo::Sexp) -> CVec<Self>;
+    // applies the given productions to the old terms to get some new workload
+    fn make_terms(&self, old_terms: &Workload) -> Workload;
+    fn make_preds(&self) -> Workload;
+
+    fn validate_rule(&self, rule: Rule) -> ValidationResult;
+    fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
+    fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
 }
