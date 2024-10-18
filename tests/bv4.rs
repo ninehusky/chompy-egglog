@@ -130,10 +130,7 @@ impl Chomper for BitvectorChomper {
             "(BVOp1 BVValue unop BVTerm)",
             "(BVOp2 BVValue binop BVTerm BVTerm)",
         ])
-        .plug(
-            "binop",
-            &Workload::new(&["(Shl)", "(Shr)", "(Add)", "(Sub)", "(Mul)"]),
-        )
+        .plug("binop", &Workload::new(&["(Add)", "(Mul)", "(Shr)"]))
         .plug("unop", &Workload::new(&["(Neg)", "(Not)"]))
         .plug("BVTerm", old_terms)
         // width for the root expression
@@ -560,7 +557,7 @@ pub fn bv4_neg_not() {
         old_terms = terms.clone();
 
         for term in terms.force() {
-            // println!("term is {:?}", term.to_string());
+            println!("term is {:?}", term.to_string());
             // stupid. see #2.
             let term_string = BitvectorChomper::make_string_not_bad(
                 term.to_string().as_str(),
@@ -589,14 +586,6 @@ pub fn bv4_neg_not() {
             //     );
             // }
 
-            egraph
-                .parse_and_run_program(
-                    None,
-                    r#"
-                (run 10)"#,
-                )
-                .unwrap();
-
             // let serialized = egraph.serialize(egglog::SerializeConfig::default());
             // println!("nodes in egraph: {}", serialized.nodes.len());
             // serialized.to_svg_file("bv4-new.svg").unwrap();
@@ -605,6 +594,14 @@ pub fn bv4_neg_not() {
         for val in &vals.non_conditional {
             chomper.add_rewrite(&mut egraph, val.lhs.clone(), val.rhs.clone());
         }
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+            (run 100)"#,
+            )
+            .unwrap();
+
         if !printed_found_first {
             if egraph
                 .parse_and_run_program(
@@ -623,6 +620,21 @@ pub fn bv4_neg_not() {
             }
         }
 
+        if egraph
+            .parse_and_run_program(
+                None,
+                format!(
+                    r#"
+        (check (BVOp1 (ValueVar p ) (Not ) (Bitvector (ValueVar p ) (ValueVar a ) ) ))
+        "#
+                )
+                .as_str(),
+            )
+            .is_ok()
+        {
+            println!("found second term");
+        }
+
         if !printed_found_second {
             if egraph
                     .parse_and_run_program(
@@ -636,8 +648,8 @@ pub fn bv4_neg_not() {
                     )
                     .is_ok()
                 {
-                    println!("found second term");
-                    printed_found_second = true;
+                    println!("found third term");
+                    break;
                 }
         }
 
