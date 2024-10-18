@@ -24,7 +24,7 @@ pub struct Rules {
 pub trait Chomper {
     type Constant: Debug + Clone + Eq + Hash;
 
-    fn get_eclass_term_map(&self, egraph: &mut EGraph) -> HashMap<i64, Sexp> {
+    fn reset_eclass_term_map(&self, egraph: &mut EGraph) -> HashMap<i64, Sexp> {
         let mut outputs = egraph
             .parse_and_run_program(
                 None,
@@ -59,7 +59,7 @@ pub trait Chomper {
             conditional: vec![],
         };
 
-        let eclass_term_map: HashMap<i64, Sexp> = self.get_eclass_term_map(egraph);
+        let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
         let ec_keys: Vec<&i64> = eclass_term_map.keys().into_iter().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
