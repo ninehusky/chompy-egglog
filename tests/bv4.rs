@@ -489,22 +489,22 @@ pub fn test_bv4_new_flow() {
                 )
                 .unwrap();
             max_eclass_id += 1;
-            let vals = chomper.cvec_match(&mut egraph, &HashMap::default());
-            // for val in &vals.non_conditional {
-            //     println!("{:?} ~> {:?}", val.lhs.to_string(), val.rhs.to_string());
-            // }
-            chomper.get_eclass_term_map(&mut egraph);
-            // let serialized = egraph.serialize(egglog::SerializeConfig::default());
-            // serialized.to_svg_file("bv4.svg").unwrap();
+        }
+        let vals = chomper.cvec_match(&mut egraph, &HashMap::default());
+        // for val in &vals.non_conditional {
+        //     println!("{:?} ~> {:?}", val.lhs.to_string(), val.rhs.to_string());
+        // }
+        chomper.get_eclass_term_map(&mut egraph);
+        // let serialized = egraph.serialize(egglog::SerializeConfig::default());
+        // serialized.to_svg_file("bv4.svg").unwrap();
 
-            if vals.non_conditional.contains(&Rule {
-                condition: None,
-                lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
-                rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
-            }) {
-                good = true;
-                break;
-            }
+        if vals.non_conditional.contains(&Rule {
+            condition: None,
+            lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
+            rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
+        }) {
+            good = true;
+            break;
         }
     }
     assert!(good);
@@ -551,6 +551,7 @@ pub fn bv4_neg_not() {
     let mut old_terms = atoms.clone();
     let mut printed_found_first = false;
     let mut printed_found_second = false;
+    let mask_to_preds = &chomper.add_predicates_to_egraph(&mut egraph, chomper.make_preds());
     for _ in 0..MAX_ITERATIONS {
         if good {
             break;
@@ -578,12 +579,6 @@ pub fn bv4_neg_not() {
                 )
                 .unwrap();
             max_eclass_id += 1;
-            let mask_to_preds =
-                &chomper.add_predicates_to_egraph(&mut egraph, chomper.make_preds());
-            let vals = chomper.cvec_match(&mut egraph, mask_to_preds);
-            for val in &vals.non_conditional {
-                chomper.add_rewrite(&mut egraph, val.lhs.clone(), val.rhs.clone());
-            }
 
             // for val in &vals.conditional {
             //     chomper.add_conditional_rewrite(
@@ -602,26 +597,34 @@ pub fn bv4_neg_not() {
                 )
                 .unwrap();
 
-            if !printed_found_first {
-                if egraph
-                    .parse_and_run_program(
-                        None,
-                        format!(
-                            r#"
+            // let serialized = egraph.serialize(egglog::SerializeConfig::default());
+            // println!("nodes in egraph: {}", serialized.nodes.len());
+            // serialized.to_svg_file("bv4-new.svg").unwrap();
+        }
+        let vals = chomper.cvec_match(&mut egraph, mask_to_preds);
+        for val in &vals.non_conditional {
+            chomper.add_rewrite(&mut egraph, val.lhs.clone(), val.rhs.clone());
+        }
+        if !printed_found_first {
+            if egraph
+                .parse_and_run_program(
+                    None,
+                    format!(
+                        r#"
                     (check (BVOp1 (ValueVar r ) (Neg ) (Bitvector (ValueVar p ) (ValueVar a ) ) ))
                     "#
-                        )
-                        .as_str(),
                     )
-                    .is_ok()
-                {
-                    println!("found first term");
-                    printed_found_first = true;
-                }
+                    .as_str(),
+                )
+                .is_ok()
+            {
+                println!("found first term");
+                printed_found_first = true;
             }
+        }
 
-            if !printed_found_second {
-                if egraph
+        if !printed_found_second {
+            if egraph
                     .parse_and_run_program(
                         None,
                         format!(
@@ -636,9 +639,9 @@ pub fn bv4_neg_not() {
                     println!("found second term");
                     printed_found_second = true;
                 }
-            }
+        }
 
-            if vals.conditional.contains(&Rule {
+        if vals.conditional.contains(&Rule {
                 condition: Some(Sexp::from_str("(PredOp2 (Le ) (ValueVar r ) (ValueVar p ) )").unwrap()),
                 lhs: Sexp::from_str("(BVOp1 (ValueVar r ) (Neg ) (Bitvector (ValueVar p ) (ValueVar a ) ) )").unwrap(),
                 rhs: Sexp::from_str("(BVOp2 (ValueVar r ) (Add ) (BVOp1 (ValueVar p ) (Not ) (Bitvector (ValueVar p ) (ValueVar a ) ) ) (Bitvector (ValueNum 1 ) (ValueNum 1 ) ) )").unwrap(),
@@ -646,11 +649,7 @@ pub fn bv4_neg_not() {
                 good = true;
                 break;
             }
-            chomper.get_eclass_term_map(&mut egraph);
-            // let serialized = egraph.serialize(egglog::SerializeConfig::default());
-            // println!("nodes in egraph: {}", serialized.nodes.len());
-            // serialized.to_svg_file("bv4-new.svg").unwrap();
-        }
+        chomper.get_eclass_term_map(&mut egraph);
     }
     assert!(good);
 }
