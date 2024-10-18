@@ -560,7 +560,7 @@ pub fn bv4_neg_not() {
         old_terms = terms.clone();
 
         for term in terms.force() {
-            println!("term is {:?}", term.to_string());
+            // println!("term is {:?}", term.to_string());
             // stupid. see #2.
             let term_string = BitvectorChomper::make_string_not_bad(
                 term.to_string().as_str(),
