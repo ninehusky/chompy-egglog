@@ -91,6 +91,8 @@ pub trait Chomper {
                         rhs: term1.clone(),
                     });
                 } else {
+                    // TODO: check if they are conditionally equal
+                    // let is_equal
                     let mut has_meaningful_diff = false;
                     let mut matching_count = 0;
                     let mut same_vals: Vec<bool> = vec![];
