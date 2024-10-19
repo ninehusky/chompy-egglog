@@ -73,13 +73,9 @@ pub trait Chomper {
         let mut max_eclass_id = 0;
 
         const MAX_ITERATIONS: usize = 2;
-        let mut good = false;
         for _ in 0..MAX_ITERATIONS {
             let new_workload = self.make_terms(&old_workload);
             old_workload = new_workload.clone();
-            if good {
-                break;
-            }
             info!(
                 "{}: new workload has {} terms",
                 test_name,
@@ -103,7 +99,7 @@ pub trait Chomper {
             }
             loop {
                 info!("starting cvec match");
-                let vals = self.cvec_match(egraph, &mask_to_preds);
+                let vals = self.cvec_match(egraph, mask_to_preds);
                 info!("found {} non-conditional rules", vals.non_conditional.len());
                 info!("found {} conditional rules", vals.conditional.len());
                 if vals.non_conditional.is_empty() {
@@ -119,7 +115,6 @@ pub trait Chomper {
                         {
                             found[i] = true;
                             if found.iter().all(|x| *x) {
-                                good = true;
                                 return;
                             }
                         }
@@ -147,7 +142,7 @@ pub trait Chomper {
                     .unwrap();
             }
         }
-        assert!(good);
+        panic!("not all rules were found");
     }
 
     fn reset_eclass_term_map(&self, egraph: &mut EGraph) -> HashMap<i64, Sexp> {
@@ -186,19 +181,18 @@ pub trait Chomper {
         };
 
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
-        let ec_keys: Vec<&i64> = eclass_term_map.keys().into_iter().collect();
+        let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
-            let term1 = eclass_term_map.get(&ec1).unwrap();
-            let cvec1 = self.interpret_term(&term1);
+            let term1 = eclass_term_map.get(ec1).unwrap();
+            let cvec1 = self.interpret_term(term1);
             if cvec1.iter().all(|x| x.is_none()) {
                 // ignore cvecs which don't really matter
                 continue;
             }
-            for j in i + 1..ec_keys.len() {
-                let ec2 = ec_keys[j];
+            for ec2 in ec_keys.iter().skip(i + 1) {
                 let term2 = eclass_term_map.get(ec2).unwrap();
-                let cvec2 = self.interpret_term(&term2);
+                let cvec2 = self.interpret_term(term2);
 
                 if cvec2.iter().all(|x| x.is_none()) {
                     continue;
@@ -223,10 +217,8 @@ pub trait Chomper {
 
                     for (cvec_1_el, cvec_2_el) in cvec1.iter().zip(cvec2.iter()) {
                         let has_match = cvec_1_el == cvec_2_el;
-                        if !has_match {
-                            if cvec_1_el.is_some() || cvec_2_el.is_some() {
-                                has_meaningful_diff = true;
-                            }
+                        if !has_match && cvec_1_el.is_some() || cvec_2_el.is_some() {
+                            has_meaningful_diff = true;
                         }
                         same_vals.push(has_match);
                         matching_count += 1;
@@ -242,7 +234,7 @@ pub trait Chomper {
                     }
 
                     // we want sufficient conditions, not sufficent and necessary.
-                    let masks = mask_to_preds.keys().into_iter().filter(|mask| {
+                    let masks = mask_to_preds.keys().filter(|mask| {
                         mask.iter()
                             .zip(same_vals.iter())
                             .all(|(mask_val, same_val)| {
