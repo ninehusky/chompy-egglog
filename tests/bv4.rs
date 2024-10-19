@@ -48,11 +48,11 @@ impl BitvectorChomper {
                 None,
                 format!(
                     r#"
-            (rewrite
-                {term1}
-                {term2}
-                :ruleset non-cond-rewrites)
-            "#
+                    (rewrite
+                        {term1}
+                        {term2}
+                        :ruleset non-cond-rewrites)
+                    "#
                 )
                 .as_str(),
             )
@@ -80,34 +80,34 @@ impl BitvectorChomper {
             .unwrap();
     }
 
-    fn add_predicates_to_egraph(
-        &mut self,
-        egraph: &mut EGraph,
-        preds: Workload,
-    ) -> HashMap<Vec<bool>, HashSet<String>> {
-        let mut map = HashMap::default();
-        for pred in preds.force() {
-            let pred_str =
-                BitvectorChomper::make_string_not_bad(pred.to_string().as_str(), &self.value_env);
-            let mask = self.interpret_pred(&pred);
-            map.entry(mask.clone())
-                .or_insert(HashSet::default())
-                .insert(pred_str.clone());
+    // fn add_predicates_to_egraph(
+    //     &mut self,
+    //     egraph: &mut EGraph,
+    //     preds: Workload,
+    // ) -> HashMap<Vec<bool>, HashSet<String>> {
+    //     let mut map = HashMap::default();
+    //     for pred in preds.force() {
+    //         let pred_str =
+    //             BitvectorChomper::make_string_not_bad(pred.to_string().as_str(), &self.value_env);
+    //         let mask = self.interpret_pred(&pred);
+    //         map.entry(mask.clone())
+    //             .or_insert(HashSet::default())
+    //             .insert(pred_str.clone());
 
-            egraph
-                .parse_and_run_program(
-                    None,
-                    format!(
-                        r#"
-                    {pred_str}
-                    "#
-                    )
-                    .as_str(),
-                )
-                .unwrap();
-        }
-        map
-    }
+    //         egraph
+    //             .parse_and_run_program(
+    //                 None,
+    //                 format!(
+    //                     r#"
+    //                 {pred_str}
+    //                 "#
+    //                 )
+    //                 .as_str(),
+    //             )
+    //             .unwrap();
+    //     }
+    //     map
+    // }
 }
 
 impl Chomper for BitvectorChomper {
@@ -140,7 +140,6 @@ impl Chomper for BitvectorChomper {
         )
         .plug("unop", &Workload::new(&["(Neg)", "(Not)"]))
         .plug("BVTerm", old_terms)
-        // width for the root expression
         .plug(
             "BVValue",
             &Workload::new(&["(ValueVar p)", "(ValueVar r)", "(ValueVar q)"]),
@@ -381,188 +380,194 @@ fn interpret_term_internal(
     cvec
 }
 
-#[test]
-pub fn test_bv4_new_flow() {
-    let mut egraph = egglog::EGraph::default();
-    egraph
-        .parse_and_run_program(
-            Some("./egglog/bv4.egg".to_string()),
-            include_str!("./egglog/bv4.egg"),
-        )
-        .unwrap();
-    let atoms = Workload::new(&[
-        r#"(Bitvector (ValueVar "p") (ValueVar "x"))"#,
-        r#"(Bitvector (ValueVar "q") (ValueVar "y"))"#,
-        r#"(Bitvector (ValueNum 2) (ValueNum 1))"#,
-        r#"(Bitvector (ValueNum 2) (ValueNum 2))"#,
-    ]);
-    let mut rng = StdRng::seed_from_u64(0xdeadbeef);
-    let value_env = initialize_value_env(
-        &mut rng,
-        vec!["x".to_string(), "y".to_string()],
-        0,
-        (1 << MAX_BITWIDTH) - 1,
-    );
-    let width_env = initialize_value_env(
-        &mut rng,
-        vec!["p".to_string(), "q".to_string(), "r".to_string()],
-        1,
-        MAX_BITWIDTH as u64,
-    );
-    let value_env: HashMap<String, Vec<u64>> = value_env
-        .into_iter()
-        .chain(width_env.into_iter())
-        .collect::<HashMap<String, Vec<u64>>>();
+pub mod bv_tests {
+    use crate::*;
 
-    let mut chomper = BitvectorChomper {
-        value_env,
-        term_memo: HashMap::default(),
-        pred_memo: HashMap::default(),
-        rng: StdRng::seed_from_u64(0xdeadbeef),
-    };
+    fn run_chompy(
+        test_name: &str,
+        chomper: &mut BitvectorChomper,
+        rules: Vec<Rule>,
+        atoms: &Workload,
+    ) {
+        let mut egraph = egglog::EGraph::default();
+        let mut found: Vec<bool> = vec![false; rules.len()];
 
-    let new_workload = chomper.make_terms(&atoms).force();
-
-    let mut max_eclass_id = 0;
-
-    const MAX_ITERATIONS: usize = 3;
-    let mut good = false;
-    for _ in 0..MAX_ITERATIONS {
-        if good {
-            break;
-        }
-        for term in &new_workload {
-            // stupid. see #2.
-            let term_string = BitvectorChomper::make_string_not_bad(
-                term.to_string().as_str(),
-                &chomper.value_env,
-            );
-            egraph
-                .parse_and_run_program(
-                    None,
-                    format!(
-                        r#"
-                {term_string}
-                (set (eclass {term_string}) {max_eclass_id})
-                "#
-                    )
-                    .as_str(),
-                )
-                .unwrap();
-            max_eclass_id += 1;
-        }
         egraph
             .parse_and_run_program(
-                None,
-                r#"(run-schedule
-            (saturate non-cond-rewrites)) "#,
+                Some("./egglog/bv4.egg".to_string()),
+                include_str!("./egglog/bv4.egg"),
             )
             .unwrap();
-        let vals = chomper.cvec_match(&mut egraph, &HashMap::default());
-        if vals.non_conditional.contains(&Rule {
-            condition: None,
-            lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
-            rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
-        }) {
-            good = true;
-            break;
-        }
-    }
-    assert!(good);
-}
 
-#[test]
-pub fn bv4_neg_not() {
-    let mut egraph = egglog::EGraph::default();
-    egraph
-        .parse_and_run_program(
-            Some("./egglog/bv4.egg".to_string()),
-            include_str!("./egglog/bv4.egg"),
-        )
-        .unwrap();
-    let atoms = Workload::new(&[
-        r#"(Bitvector (ValueVar "p") (ValueVar "a"))"#,
-        r#"(Bitvector (ValueNum 1) (ValueNum 1))"#,
-    ]);
-    let mut rng = StdRng::seed_from_u64(0xdeadbeef);
-    let value_env =
-        initialize_value_env(&mut rng, vec!["a".to_string()], 0, (1 << MAX_BITWIDTH) - 1);
-    let width_env = initialize_value_env(
-        &mut rng,
-        vec!["p".to_string(), "q".to_string(), "r".to_string()],
-        1,
-        MAX_BITWIDTH as u64,
-    );
-    let value_env: HashMap<String, Vec<u64>> = value_env
-        .into_iter()
-        .chain(width_env.into_iter())
-        .collect::<HashMap<String, Vec<u64>>>();
+        let mut old_workload = atoms.clone();
+        let mut max_eclass_id = 0;
 
-    let mut chomper = BitvectorChomper {
-        value_env,
-        term_memo: HashMap::default(),
-        pred_memo: HashMap::default(),
-        rng: StdRng::seed_from_u64(0xdeadbeef),
-    };
-
-    let mut max_eclass_id = 0;
-    let mut found = false;
-    const MAX_ITERATIONS: usize = 3;
-    let mut old_terms = atoms.clone();
-    let mask_to_preds = &chomper.add_predicates_to_egraph(&mut egraph, chomper.make_preds());
-    for _ in 0..MAX_ITERATIONS {
-        let terms = chomper.make_terms(&old_terms);
-        old_terms = terms.clone();
-
-        let mut term_num = 1;
-        for term in terms.force() {
-            term_num += 1;
-            // stupid. see #2.
-            let term_string = BitvectorChomper::make_string_not_bad(
-                term.to_string().as_str(),
-                &chomper.value_env,
+        const MAX_ITERATIONS: usize = 3;
+        let mut good = false;
+        for _ in 0..MAX_ITERATIONS {
+            let new_workload = chomper.make_terms(&old_workload);
+            old_workload = new_workload.clone();
+            if good {
+                break;
+            }
+            println!(
+                "{}: new workload has {} terms",
+                test_name,
+                new_workload.force().len()
             );
-            egraph
-                .parse_and_run_program(
-                    None,
-                    format!(
-                        r#"
+            for term in &new_workload.force() {
+                let term_string = BitvectorChomper::make_string_not_bad(
+                    term.to_string().as_str(),
+                    &chomper.value_env,
+                );
+                egraph
+                    .parse_and_run_program(
+                        None,
+                        format!(
+                            r#"
                     {term_string}
                     (set (eclass {term_string}) {max_eclass_id})
                     "#
+                        )
+                        .as_str(),
                     )
-                    .as_str(),
-                )
-                .unwrap();
-            max_eclass_id += 1;
+                    .unwrap();
+                max_eclass_id += 1;
+            }
+            loop {
+                let vals = chomper.cvec_match(&mut egraph, &HashMap::default());
+                if vals.non_conditional.is_empty() {
+                    break;
+                }
+
+                // loop through conditionals and non-conditionals
+                for val in vals.conditional.iter().chain(vals.non_conditional.iter()) {
+                    for (i, rule) in rules.iter().enumerate() {
+                        if val.lhs == rule.lhs
+                            && val.rhs == rule.rhs
+                            && val.condition == rule.condition
+                        {
+                            found[i] = true;
+                        }
+                    }
+
+                    if found.iter().all(|x| *x) {
+                        good = true;
+                        break;
+                    }
+                }
+
+                for val in &vals.conditional {
+                    chomper.add_conditional_rewrite(
+                        &mut egraph,
+                        val.condition.clone().unwrap().clone(),
+                        val.lhs.clone(),
+                        val.rhs.clone(),
+                    );
+                }
+                for val in &vals.non_conditional {
+                    chomper.add_rewrite(&mut egraph, val.lhs.clone(), val.rhs.clone());
+                }
+                egraph
+                    .parse_and_run_program(
+                        None,
+                        r#"
+                        (run-schedule
+                            (saturate non-cond-rewrites))"#,
+                    )
+                    .unwrap();
+            }
         }
-        loop {
-            let vals = chomper.cvec_match(&mut egraph, mask_to_preds);
-            println!("non-conditional: {:#?}", vals.non_conditional.len());
-            println!("conditional: {:#?}", vals.conditional.len());
-            if vals.non_conditional.is_empty() {
-                break;
-            }
-            if vals.conditional.contains(&Rule {
-                    condition: Some(Sexp::from_str("(PredOp2 (Le ) (ValueVar r ) (ValueVar p ) )").unwrap()),
-                    lhs: Sexp::from_str("(BVOp1 (ValueVar r ) (Neg ) (Bitvector (ValueVar p ) (ValueVar a ) ) )").unwrap(),
-                    rhs: Sexp::from_str("(BVOp2 (ValueVar r ) (Add ) (BVOp1 (ValueVar p ) (Not ) (Bitvector (ValueVar p ) (ValueVar a ) ) ) (Bitvector (ValueNum 1 ) (ValueNum 1 ) ) )").unwrap(),
-            }) {
-                found = true;
-                break;
-            }
-            for val in &vals.non_conditional {
-                chomper.add_rewrite(&mut egraph, val.lhs.clone(), val.rhs.clone());
-            }
-            egraph
-                .parse_and_run_program(
-                    None,
-                    r#"
-                    (run-schedule
-                        (saturate non-cond-rewrites))"#,
-                )
-                .unwrap();
-        }
+        assert!(good);
     }
-    assert!(found);
+
+    #[test]
+    // finds (x * 2) ~> (x << 1)
+    pub fn test_bv4_finds_shift_optimizer() {
+        let atoms = Workload::new(&[
+            r#"(Bitvector (ValueVar "p") (ValueVar "x"))"#,
+            r#"(Bitvector (ValueVar "q") (ValueVar "y"))"#,
+            r#"(Bitvector (ValueNum 2) (ValueNum 1))"#,
+            r#"(Bitvector (ValueNum 2) (ValueNum 2))"#,
+        ]);
+        let mut rng = StdRng::seed_from_u64(0xdeadbeef);
+        let value_env = initialize_value_env(
+            &mut rng,
+            vec!["x".to_string(), "y".to_string()],
+            0,
+            (1 << MAX_BITWIDTH) - 1,
+        );
+        let width_env = initialize_value_env(
+            &mut rng,
+            vec!["p".to_string(), "q".to_string(), "r".to_string()],
+            1,
+            MAX_BITWIDTH as u64,
+        );
+        let value_env: HashMap<String, Vec<u64>> = value_env
+            .into_iter()
+            .chain(width_env.into_iter())
+            .collect::<HashMap<String, Vec<u64>>>();
+
+        let mut chomper = BitvectorChomper {
+            value_env,
+            term_memo: HashMap::default(),
+            pred_memo: HashMap::default(),
+            rng: StdRng::seed_from_u64(0xdeadbeef),
+        };
+
+        run_chompy(
+            "test_bv4_finds_shift_optimizer",
+            &mut chomper,
+            vec![Rule {
+                condition: None,
+                lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
+                rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
+            }],
+            &atoms,
+        );
+    }
+
+    #[test]
+    pub fn bv4_neg_not() {
+        let mut egraph = egglog::EGraph::default();
+        egraph
+            .parse_and_run_program(
+                Some("./egglog/bv4.egg".to_string()),
+                include_str!("./egglog/bv4.egg"),
+            )
+            .unwrap();
+        let atoms = Workload::new(&[
+            r#"(Bitvector (ValueVar "p") (ValueVar "a"))"#,
+            r#"(Bitvector (ValueNum 1) (ValueNum 1))"#,
+        ]);
+        let mut rng = StdRng::seed_from_u64(0xdeadbeef);
+        let value_env =
+            initialize_value_env(&mut rng, vec!["a".to_string()], 0, (1 << MAX_BITWIDTH) - 1);
+        let width_env = initialize_value_env(
+            &mut rng,
+            vec!["p".to_string(), "q".to_string(), "r".to_string()],
+            1,
+            MAX_BITWIDTH as u64,
+        );
+        let value_env: HashMap<String, Vec<u64>> = value_env
+            .into_iter()
+            .chain(width_env.into_iter())
+            .collect::<HashMap<String, Vec<u64>>>();
+
+        let mut chomper = BitvectorChomper {
+            value_env,
+            term_memo: HashMap::default(),
+            pred_memo: HashMap::default(),
+            rng: StdRng::seed_from_u64(0xdeadbeef),
+        };
+        let rules = vec![
+            Rule {
+                condition: Some(Sexp::from_str("(PredOp2 (Le ) (ValueVar r ) (ValueVar p ) )").unwrap()),
+                lhs: Sexp::from_str("(BVOp1 (ValueVar r ) (Neg ) (Bitvector (ValueVar p ) (ValueVar a ) ) )").unwrap(),
+                rhs: Sexp::from_str("(BVOp2 (ValueVar r ) (Add ) (BVOp1 (ValueVar p ) (Not ) (Bitvector (ValueVar p ) (ValueVar a ) ) ) (Bitvector (ValueNum 1 ) (ValueNum 1 ) ) )").unwrap()
+            }
+        ];
+
+        run_chompy("bv4_neg_not", &mut chomper, rules, &atoms);
+    }
 }
