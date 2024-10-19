@@ -1,0 +1,38 @@
+(datatype MathFn
+  (Add)
+  (Sub)
+  (Mul)
+  (Div)
+  (Abs))
+
+(datatype Math
+  (Num i64)
+  (Var String)
+  (MathOp1 MathFn Math)
+  (MathOp2 MathFn Math Math))
+
+(datatype PredFn
+  (Eq)
+  (Neq)
+  (Gt)
+  (Ge)
+  (Lt))
+
+(datatype Pred
+  (PredOp2 PredFn Math Math))
+
+(relation cond-equal (Pred Math Math))
+
+(function eclass (Math) i64 :merge (min old new))
+
+(ruleset eclass-report)
+(ruleset non-cond-rewrites)
+(ruleset cond-rewrites)
+
+(rule
+  ((eclass ?math))
+  ((extract "eclass:")
+   (extract (eclass ?math))
+   (extract "candidate term:")
+   (extract ?math))
+   :ruleset eclass-report)
