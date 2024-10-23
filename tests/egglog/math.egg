@@ -21,7 +21,7 @@
 (datatype Pred
   (PredOp2 PredFn Math Math))
 
-(relation cond-equal (Pred Math Math))
+(relation cond-equal (Math Math))
 
 (function eclass (Math) i64 :merge (min old new))
 

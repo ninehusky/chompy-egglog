@@ -49,13 +49,9 @@ impl Chomper for BitvectorChomper {
         let unary_ops = vec!["(Neg)", "(Not)"];
         let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
         Workload::new(&[
-            format!(
-                "(BVOp2 width binop {} {})",
-                TERM_PLACEHOLDER, TERM_PLACEHOLDER
-            ),
-            format!("(BVOp1 width unaryop {})", TERM_PLACEHOLDER),
+            format!("(BVOp2 binop {} {})", TERM_PLACEHOLDER, TERM_PLACEHOLDER),
+            format!("(BVOp1 unaryop {})", TERM_PLACEHOLDER),
         ])
-        .plug("width", &Workload::new(&["(ValueNum 4)"]))
         .plug("binop", &Workload::new(&binary_ops))
         .plug("unaryop", &Workload::new(&unary_ops))
     }
@@ -79,7 +75,8 @@ impl Chomper for BitvectorChomper {
 
     fn make_preds(&self) -> Workload {
         // TODO: expand this to include more meaningful predicates
-        Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
+        // Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
+        Workload::empty()
     }
 }
 
@@ -213,9 +210,8 @@ fn interpret_term_internal(
                         .collect()
                 }
                 "BVOp1" => {
-                    assert!(l.len() == 4);
-                    let widths = get_value_vec(l[1].clone(), value_env);
-                    let op = l[2].clone();
+                    assert!(l.len() == 3);
+                    let op = l[1].clone();
                     fn f(a: u64, op: &Sexp) -> Option<u64> {
                         match op {
                             Sexp::List(l) => {
@@ -232,7 +228,7 @@ fn interpret_term_internal(
                             _ => panic!("expected list, found {:?}", op),
                         }
                     }
-                    let child_cvecs: Vec<Vec<Option<Bitvector>>> = l[3..4]
+                    let child_cvecs: Vec<Vec<Option<Bitvector>>> = l[2..3]
                         .iter()
                         .map(|x| interpret_term_internal(x.clone(), value_env, memo))
                         .into_iter()
@@ -240,12 +236,11 @@ fn interpret_term_internal(
 
                     child_cvecs[0]
                         .iter()
-                        .zip(widths.iter())
-                        .map(|(first_child_val, width)| match first_child_val {
+                        .map(|val| match val {
                             Some(first_child) => {
                                 let result = f(first_child.value, &op);
                                 match result {
-                                    Some(result) => Some(Bitvector::new(*width, result)),
+                                    Some(result) => Some(Bitvector::new(4, result)),
                                     None => None,
                                 }
                             }
@@ -254,9 +249,8 @@ fn interpret_term_internal(
                         .collect()
                 }
                 "BVOp2" => {
-                    assert!(l.len() == 5);
-                    let widths = get_value_vec(l[1].clone(), value_env);
-                    let op = l[2].clone();
+                    assert!(l.len() == 4);
+                    let op = l[1].clone();
                     // TODO: @ninehusky - macroify this f thing
                     fn f(a: u64, b: u64, op: &Sexp) -> Option<u64> {
                         match op {
@@ -279,7 +273,7 @@ fn interpret_term_internal(
                             }
                         }
                     }
-                    let child_cvecs: Vec<Vec<Option<Bitvector>>> = l[3..5]
+                    let child_cvecs: Vec<Vec<Option<Bitvector>>> = l[2..4]
                         .iter()
                         .map(|x| interpret_term_internal(x.clone(), value_env, memo))
                         .into_iter()
@@ -288,13 +282,12 @@ fn interpret_term_internal(
                     child_cvecs[0]
                         .iter()
                         .zip(child_cvecs[1].iter())
-                        .zip(widths.iter())
-                        .map(|((first_child_val, second_child_val), width)| {
+                        .map(|(first_child_val, second_child_val)| {
                             match (first_child_val, second_child_val) {
                                 (Some(first_child), Some(second_child)) => {
                                     let result = f(first_child.value, second_child.value, &op);
                                     match result {
-                                        Some(result) => Some(Bitvector::new(*width, result)),
+                                        Some(result) => Some(Bitvector::new(4, result)),
                                         None => None,
                                     }
                                 }
@@ -319,77 +312,16 @@ pub mod bv_tests {
     use crate::*;
 
     #[test]
-    pub fn test_production() {
-        let mut rng = StdRng::seed_from_u64(0xdeadbeef);
-        let value_env = initialize_value_env(
-            &mut rng,
-            vec!["x".to_string(), "y".to_string()],
-            0,
-            (1 << MAX_BITWIDTH) - 1,
-        );
-        let width_env = initialize_value_env(
-            &mut rng,
-            vec!["p".to_string(), "q".to_string(), "r".to_string()],
-            1,
-            MAX_BITWIDTH as u64,
-        );
-        let value_env: HashMap<String, Vec<u64>> = value_env
-            .into_iter()
-            .chain(width_env.into_iter())
-            .collect::<HashMap<String, Vec<u64>>>();
-
-        let mut chomper = BitvectorChomper {
-            value_env,
-            term_memo: HashMap::default(),
-            pred_memo: HashMap::default(),
-            rng: StdRng::seed_from_u64(0xdeadbeef),
-        };
-
-        let mut egraph = EGraph::default();
-        init_egraph!(egraph, "./egglog/bv4.egg");
-
-        let mask_to_preds = chomper.make_mask_to_preds();
-
-        chomper.run_chompy(
-            &mut egraph,
-            "test_bv4_finds_shift_optimizer",
-            vec![Rule {
-                condition: None,
-                lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
-                rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
-            }],
-            &Workload::default(),
-            &mask_to_preds,
-        );
-    }
-
-    #[ignore]
-    #[test]
     // finds (x * 2) ~> (x << 1)
     pub fn test_bv4_finds_shift_optimizer() {
-        let atoms = Workload::new(&[
-            r#"(Bitvector (ValueVar "p") (ValueVar "x"))"#,
-            r#"(Bitvector (ValueVar "q") (ValueVar "y"))"#,
-            r#"(Bitvector (ValueNum 2) (ValueNum 1))"#,
-            r#"(Bitvector (ValueNum 2) (ValueNum 2))"#,
-        ]);
+        let atoms = Workload::empty();
         let mut rng = StdRng::seed_from_u64(0xdeadbeef);
         let value_env = initialize_value_env(
             &mut rng,
-            vec!["x".to_string(), "y".to_string()],
+            vec!["p".to_string(), "q".to_string(), "r".to_string()],
             0,
             (1 << MAX_BITWIDTH) - 1,
         );
-        let width_env = initialize_value_env(
-            &mut rng,
-            vec!["p".to_string(), "q".to_string(), "r".to_string()],
-            1,
-            MAX_BITWIDTH as u64,
-        );
-        let value_env: HashMap<String, Vec<u64>> = value_env
-            .into_iter()
-            .chain(width_env.into_iter())
-            .collect::<HashMap<String, Vec<u64>>>();
 
         let mut chomper = BitvectorChomper {
             value_env,
@@ -402,20 +334,18 @@ pub mod bv_tests {
         init_egraph!(egraph, "./egglog/bv4.egg");
 
         let mask_to_preds = chomper.make_mask_to_preds();
-
         chomper.run_chompy(
             &mut egraph,
             "test_bv4_finds_shift_optimizer",
             vec![Rule {
                 condition: None,
-                lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
-                rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
+                lhs: Sexp::from_str("(BVOp2 (Shl) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 1)))").unwrap(),
+                rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 2)))").unwrap(),
             }],
             &atoms,
             &mask_to_preds,
         );
     }
-
     #[ignore]
     #[test]
     pub fn bv4_neg_not() {
