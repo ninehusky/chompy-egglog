@@ -91,69 +91,35 @@ pub trait Chomper {
         // corpus[i] contains all programs of size i.
         let mut corpus = self.make_initial_corpus();
 
+        let mut old_workload = self.atoms();
+
         // invariant: `corpus` contains all programs of size `i`.
         for current_size in 0..MAX_SIZE {
-            println!("programs of size {}", current_size);
+            println!("programs of size {}:", current_size);
 
-            let mut current_workload = corpus[current_size].clone();
-            for (i, production) in self.productions().iter().enumerate() {
-                // current_size - i: the index for which `corpus` contains the set of terms for which
-                // applying this production will yield a new program of size `current_size`.
-                let idx: i64 = (current_size as i64) - (i as i64);
-                if idx < 0 || corpus.get(idx as usize).is_none() {
-                    continue;
-                }
-
-                if current_size > 2 {
-                    current_workload = current_workload.append(
-                        production
-                            .clone()
-                            .plug(TERM_PLACEHOLDER, &{
-                                let mut wkld = Workload::default();
-                                for i in 0..current_size {
-                                    wkld = wkld.append(corpus[i as usize].clone());
-                                }
-                                wkld
-                            })
-                            .filter(Filter::Invert(Box::new(Filter::MetricLt(
-                                Metric::Atoms,
-                                current_size,
-                            ))))
-                            .filter(Filter::Excludes(
-                                "(Bitvector ?x (ValueNum ?y))".parse().unwrap(),
-                            )),
-                    );
-                } else {
-                    current_workload = current_workload.append(
-                        production
-                            .clone()
-                            .plug(TERM_PLACEHOLDER, &{
-                                let mut wkld = Workload::default();
-                                for i in 0..current_size {
-                                    wkld = wkld.append(corpus[i as usize].clone());
-                                }
-                                wkld
-                            })
-                            .filter(Filter::Invert(Box::new(Filter::MetricLt(
-                                Metric::Atoms,
-                                current_size,
-                            )))),
-                    );
-                }
+            let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
+            if current_size > 2 {
+                filter = Filter::And(vec![
+                    filter,
+                    Filter::Excludes("(Bitvector ?x (ValueNum ?y))".parse().unwrap()),
+                ]);
             }
 
-            corpus.push(current_workload.clone());
+            let new_workload = self
+                .productions()
+                .clone()
+                .plug(TERM_PLACEHOLDER, &old_workload)
+                .filter(filter);
 
-            println!(
-                "{}: current workload has {} terms",
-                test_name,
-                current_workload.force().len()
-            );
+            old_workload = old_workload.append(new_workload.clone());
 
-            for term in &current_workload.force() {
-                if get_ast_size(term) > current_size {
-                    continue;
+            println!("old workload has length: {}", old_workload.force().len());
+
+            for term in &new_workload.force() {
+                if get_ast_size(term) != current_size {
+                    panic!();
                 }
+                println!("term: {}", term);
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
                 egraph
                     .parse_and_run_program(
@@ -194,15 +160,8 @@ pub trait Chomper {
                     }
                 }
 
-                // for val in &vals.conditional {
-                //     self.add_conditional_rewrite(
-                //         egraph,
-                //         val.condition.clone().unwrap().clone(),
-                //         val.lhs.clone(),
-                //         val.rhs.clone(),
-                //     );
-                // }
                 for val in &vals.non_conditional {
+                    println!("found rule: {} -> {}", val.lhs, val.rhs);
                     self.add_rewrite(egraph, val.lhs.clone(), val.rhs.clone());
                 }
                 egraph
@@ -378,7 +337,7 @@ pub trait Chomper {
     // returns the productions in the language.
     // returns some array result, where result[i] contains
     // the productions that add `i` to the size of the program.
-    fn productions(&self) -> Vec<Workload>;
+    fn productions(&self) -> Workload;
     fn atoms(&self) -> Workload;
 
     fn make_preds(&self) -> Workload;

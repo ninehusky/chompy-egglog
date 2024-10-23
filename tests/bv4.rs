@@ -45,25 +45,19 @@ impl Chomper for BitvectorChomper {
         ])
     }
 
-    fn productions(&self) -> Vec<Workload> {
+    fn productions(&self) -> Workload {
         let unary_ops = vec!["(Neg)", "(Not)"];
         let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
-        vec![
-            Workload::default(),
-            Workload::default(),
-            Workload::default(),
-            Workload::default(),
-            Workload::new(&[
-                format!(
-                    "(BVOp2 width binop {} {})",
-                    TERM_PLACEHOLDER, TERM_PLACEHOLDER
-                ),
-                format!("(BVOp1 width unaryop {})", TERM_PLACEHOLDER),
-            ])
-            .plug("width", &Workload::new(&["(ValueNum 4)"]))
-            .plug("binop", &Workload::new(&binary_ops))
-            .plug("unaryop", &Workload::new(&unary_ops)),
-        ]
+        Workload::new(&[
+            format!(
+                "(BVOp2 width binop {} {})",
+                TERM_PLACEHOLDER, TERM_PLACEHOLDER
+            ),
+            format!("(BVOp1 width unaryop {})", TERM_PLACEHOLDER),
+        ])
+        .plug("width", &Workload::new(&["(ValueNum 4)"]))
+        .plug("binop", &Workload::new(&binary_ops))
+        .plug("unaryop", &Workload::new(&unary_ops))
     }
 
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> chompy::CVec<Self> {
