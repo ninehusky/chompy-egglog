@@ -12,6 +12,8 @@ use egglog::EGraph;
 
 use std::str::FromStr;
 
+use chompy::utils::TERM_PLACEHOLDER;
+
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct Bitvector {
     pub width: u64,
@@ -31,6 +33,38 @@ pub struct BitvectorChomper {
 impl Chomper for BitvectorChomper {
     type Constant = Bitvector;
     type Value = u64;
+
+    fn atoms(&self) -> Workload {
+        Workload::new(&[
+            "(Bitvector (ValueNum 4) (ValueNum 1))",
+            "(Bitvector (ValueNum 4) (ValueNum 2))",
+            "(Bitvector (ValueNum 4) (ValueNum 3))",
+            "(Bitvector (ValueNum 4) (ValueVar p))",
+            "(Bitvector (ValueNum 4) (ValueVar q))",
+            "(Bitvector (ValueNum 4) (ValueVar r))",
+        ])
+    }
+
+    fn productions(&self) -> Vec<Workload> {
+        let unary_ops = vec!["(Neg)", "(Not)"];
+        let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
+        vec![
+            Workload::default(),
+            Workload::default(),
+            Workload::default(),
+            Workload::default(),
+            Workload::new(&[
+                format!(
+                    "(BVOp2 width binop {} {})",
+                    TERM_PLACEHOLDER, TERM_PLACEHOLDER
+                ),
+                format!("(BVOp1 width unaryop {})", TERM_PLACEHOLDER),
+            ])
+            .plug("width", &Workload::new(&["(ValueNum 4)"]))
+            .plug("binop", &Workload::new(&binary_ops))
+            .plug("unaryop", &Workload::new(&unary_ops)),
+        ]
+    }
 
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> chompy::CVec<Self> {
         interpret_term_internal(term.clone(), &self.value_env, &mut self.term_memo)
@@ -52,24 +86,6 @@ impl Chomper for BitvectorChomper {
     fn make_preds(&self) -> Workload {
         // TODO: expand this to include more meaningful predicates
         Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
-    }
-
-    fn make_terms(&self, old_terms: &ruler::enumo::Workload) -> ruler::enumo::Workload {
-        let productions = Workload::new(&[
-            "(BVOp1 BVValue unop BVTerm)",
-            "(BVOp2 BVValue binop BVTerm BVTerm)",
-        ])
-        .plug(
-            "binop",
-            &Workload::new(&["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"]),
-        )
-        .plug("unop", &Workload::new(&["(Neg)", "(Not)"]))
-        .plug("BVTerm", old_terms)
-        .plug(
-            "BVValue",
-            &Workload::new(&["(ValueVar p)", "(ValueVar r)", "(ValueVar q)"]),
-        );
-        productions
     }
 }
 
@@ -308,6 +324,52 @@ fn interpret_term_internal(
 pub mod bv_tests {
     use crate::*;
 
+    #[test]
+    pub fn test_production() {
+        let mut rng = StdRng::seed_from_u64(0xdeadbeef);
+        let value_env = initialize_value_env(
+            &mut rng,
+            vec!["x".to_string(), "y".to_string()],
+            0,
+            (1 << MAX_BITWIDTH) - 1,
+        );
+        let width_env = initialize_value_env(
+            &mut rng,
+            vec!["p".to_string(), "q".to_string(), "r".to_string()],
+            1,
+            MAX_BITWIDTH as u64,
+        );
+        let value_env: HashMap<String, Vec<u64>> = value_env
+            .into_iter()
+            .chain(width_env.into_iter())
+            .collect::<HashMap<String, Vec<u64>>>();
+
+        let mut chomper = BitvectorChomper {
+            value_env,
+            term_memo: HashMap::default(),
+            pred_memo: HashMap::default(),
+            rng: StdRng::seed_from_u64(0xdeadbeef),
+        };
+
+        let mut egraph = EGraph::default();
+        init_egraph!(egraph, "./egglog/bv4.egg");
+
+        let mask_to_preds = chomper.make_mask_to_preds();
+
+        chomper.run_chompy(
+            &mut egraph,
+            "test_bv4_finds_shift_optimizer",
+            vec![Rule {
+                condition: None,
+                lhs: Sexp::from_str("(BVOp2 (ValueVar p) (Shl) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 1)))").unwrap(),
+                rhs: Sexp::from_str("(BVOp2 (ValueVar p) (Mul) (Bitvector (ValueVar q) (ValueVar y)) (Bitvector (ValueNum 2) (ValueNum 2)))").unwrap(),
+            }],
+            &Workload::default(),
+            &mask_to_preds,
+        );
+    }
+
+    #[ignore]
     #[test]
     // finds (x * 2) ~> (x << 1)
     pub fn test_bv4_finds_shift_optimizer() {
