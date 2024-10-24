@@ -5,11 +5,11 @@ use ruler::enumo::Sexp;
 pub const TERM_PLACEHOLDER: &str = "?term";
 
 pub fn get_production_size(term: &Sexp) -> usize {
-    get_size(&term, true)
+    get_size(term, true)
 }
 
 pub fn get_ast_size(term: &Sexp) -> usize {
-    get_size(&term, false)
+    get_size(term, false)
 }
 
 fn get_size(term: &Sexp, skip_placeholders: bool) -> usize {

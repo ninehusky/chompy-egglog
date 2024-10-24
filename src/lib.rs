@@ -1,12 +1,12 @@
-use egglog::{EGraph, SerializeConfig};
+use egglog::EGraph;
 use ruler::{HashMap, HashSet, ValidationResult};
-use utils::{get_ast_size, TERM_PLACEHOLDER};
+use utils::TERM_PLACEHOLDER;
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
-use ruler::enumo::{Filter, Metric, Pattern, Sexp, Workload};
+use ruler::enumo::{Filter, Metric, Sexp, Workload};
 
 use log::info;
 
@@ -70,16 +70,13 @@ pub trait Chomper {
             let size = utils::get_ast_size(atom);
             corpus[size].push(atom.to_string());
         }
-        corpus
-            .into_iter()
-            .map(|terms| Workload::new(terms))
-            .collect()
+        corpus.into_iter().map(Workload::new).collect()
     }
 
     fn run_chompy(
         &mut self,
         egraph: &mut EGraph,
-        test_name: &str,
+        _test_name: &str,
         rules: Vec<Rule>,
         _atoms: &Workload,
         mask_to_preds: &HashMap<Vec<bool>, HashSet<String>>,
@@ -87,8 +84,6 @@ pub trait Chomper {
         let mut found: Vec<bool> = vec![false; rules.len()];
 
         let mut max_eclass_id = 0;
-
-        let mut old_workload = Workload::empty();
 
         // invariant: `corpus` contains all programs of size `i`.
         for current_size in 0..MAX_SIZE {
@@ -151,8 +146,8 @@ pub trait Chomper {
             loop {
                 info!("starting cvec match");
                 let vals = self.cvec_match(egraph, mask_to_preds);
-                info!("found {} non-conditional rules", vals.non_conditional.len());
-                info!("found {} conditional rules", vals.conditional.len());
+                println!("found {} non-conditional rules", vals.non_conditional.len());
+                println!("found {} conditional rules", vals.conditional.len());
                 if vals.non_conditional.is_empty() {
                     break;
                 }
@@ -204,6 +199,15 @@ pub trait Chomper {
                     {
                         self.add_rewrite(egraph, val.lhs.clone(), val.rhs.clone());
                     };
+                }
+
+                for val in &vals.conditional {
+                    println!(
+                        "if {} then {} ~> {}",
+                        val.condition.as_ref().unwrap(),
+                        val.lhs,
+                        val.rhs
+                    );
                 }
 
                 egraph
@@ -288,7 +292,6 @@ pub trait Chomper {
                     });
                 } else {
                     // TODO: we're going to ignore conditionals for now, there are too many.
-                    continue;
                     if egraph
                         .parse_and_run_program(
                             None,
@@ -337,6 +340,10 @@ pub trait Chomper {
                     });
 
                     for mask in masks {
+                        // if the mask is completely false, skip it.
+                        if mask.iter().all(|x| !x) {
+                            continue;
+                        }
                         let preds = mask_to_preds.get(mask).unwrap();
                         for pred in preds {
                             result.conditional.push(Rule {
@@ -355,8 +362,6 @@ pub trait Chomper {
                                 term1.clone(),
                                 term2.clone(),
                             );
-                            // let's just add one.
-                            break;
                         }
                     }
                 }

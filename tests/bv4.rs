@@ -75,8 +75,7 @@ impl Chomper for BitvectorChomper {
 
     fn make_preds(&self) -> Workload {
         // TODO: expand this to include more meaningful predicates
-        // Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
-        Workload::empty()
+        Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
     }
 }
 
@@ -334,6 +333,7 @@ pub mod bv_tests {
         init_egraph!(egraph, "./egglog/bv4.egg");
 
         let mask_to_preds = chomper.make_mask_to_preds();
+        println!("{:?}", mask_to_preds);
         chomper.run_chompy(
             &mut egraph,
             "test_bv4_finds_shift_optimizer",
@@ -345,48 +345,5 @@ pub mod bv_tests {
             &atoms,
             &mask_to_preds,
         );
-    }
-
-    #[ignore]
-    #[test]
-    pub fn bv4_neg_not() {
-        let mut egraph = EGraph::default();
-        init_egraph!(egraph, "./egglog/bv4.egg");
-
-        let atoms = Workload::new(&[
-            r#"(Bitvector (ValueVar "p") (ValueVar "a"))"#,
-            r#"(Bitvector (ValueNum 1) (ValueNum 1))"#,
-        ]);
-
-        let mut rng = StdRng::seed_from_u64(0xdeadbeef);
-        let value_env =
-            initialize_value_env(&mut rng, vec!["a".to_string()], 0, (1 << MAX_BITWIDTH) - 1);
-        let width_env = initialize_value_env(
-            &mut rng,
-            vec!["p".to_string(), "q".to_string(), "r".to_string()],
-            1,
-            MAX_BITWIDTH as u64,
-        );
-        let value_env: HashMap<String, Vec<u64>> = value_env
-            .into_iter()
-            .chain(width_env.into_iter())
-            .collect::<HashMap<String, Vec<u64>>>();
-
-        let mut chomper = BitvectorChomper {
-            value_env,
-            term_memo: HashMap::default(),
-            pred_memo: HashMap::default(),
-            rng: StdRng::seed_from_u64(0xdeadbeef),
-        };
-        let rules = vec![
-            Rule {
-                condition: Some(Sexp::from_str("(PredOp2 (Le ) (ValueVar r ) (ValueVar p ) )").unwrap()),
-                lhs: Sexp::from_str("(BVOp1 (ValueVar r ) (Neg ) (Bitvector (ValueVar p ) (ValueVar a ) ) )").unwrap(),
-                rhs: Sexp::from_str("(BVOp2 (ValueVar r ) (Add ) (BVOp1 (ValueVar p ) (Not ) (Bitvector (ValueVar p ) (ValueVar a ) ) ) (Bitvector (ValueNum 1 ) (ValueNum 1 ) ) )").unwrap()
-            }
-        ];
-
-        let mask_to_preds = chomper.make_mask_to_preds();
-        chomper.run_chompy(&mut egraph, "bv4_neg_not", rules, &atoms, &mask_to_preds);
     }
 }
