@@ -76,9 +76,7 @@ pub trait Chomper {
     fn run_chompy(
         &mut self,
         egraph: &mut EGraph,
-        _test_name: &str,
         rules: Vec<Rule>,
-        _atoms: &Workload,
         mask_to_preds: &HashMap<Vec<bool>, HashSet<String>>,
     ) {
         let mut found: Vec<bool> = vec![false; rules.len()];
@@ -200,8 +198,6 @@ pub trait Chomper {
                                 r#"
                             {lhs}
                             {rhs}
-                            ; (run-schedule
-                            ;     (saturate non-cond-rewrites))
                             (check (= {lhs} {rhs}))
                             "#
                             )
@@ -303,7 +299,6 @@ pub trait Chomper {
                         rhs: term1.clone(),
                     });
                 } else {
-                    // TODO: we're going to ignore conditionals for now, there are too many.
                     if egraph
                         .parse_and_run_program(
                             None,
@@ -311,11 +306,11 @@ pub trait Chomper {
                         )
                         .is_ok()
                     {
+                        // TODO: we're going to ignore multiple conditionals for now, there are too many.
                         info!("skipping");
                         continue;
                     }
 
-                    // TODO: check if they are conditionally equal
                     let mut has_meaningful_diff = false;
                     let mut matching_count = 0;
                     let mut same_vals: Vec<bool> = vec![];
@@ -336,7 +331,7 @@ pub trait Chomper {
                     }
 
                     // filter out bad predicates that only match on one value
-                    if matching_count < 3 {
+                    if matching_count == 1 {
                         continue;
                     }
 

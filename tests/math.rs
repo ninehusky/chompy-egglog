@@ -198,15 +198,12 @@ fn math_eval() {
         )
         .unwrap();
 
-    let atoms = enumo::Workload::new(&["(Num 0)", "(Num 1)", "(Var a)"]);
-
     let mut chomper = MathLanguage::default();
 
     let mask_to_preds = chomper.make_mask_to_preds();
 
     chomper.run_chompy(
         &mut egraph,
-        "math",
         vec![
             Rule {
                 condition: Some(
@@ -222,7 +219,6 @@ fn math_eval() {
                 rhs: Sexp::from_str("(Var a)").unwrap(),
             },
         ],
-        &atoms,
         &mask_to_preds,
     );
 }

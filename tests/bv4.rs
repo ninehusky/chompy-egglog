@@ -313,7 +313,6 @@ pub mod bv_tests {
     #[test]
     // finds (x * 2) ~> (x << 1)
     pub fn test_bv4_finds_shift_optimizer() {
-        let atoms = Workload::empty();
         let mut rng = StdRng::seed_from_u64(0xdeadbeef);
         let value_env = initialize_value_env(
             &mut rng,
@@ -333,16 +332,13 @@ pub mod bv_tests {
         init_egraph!(egraph, "./egglog/bv4.egg");
 
         let mask_to_preds = chomper.make_mask_to_preds();
-        println!("{:?}", mask_to_preds);
         chomper.run_chompy(
             &mut egraph,
-            "test_bv4_finds_shift_optimizer",
             vec![Rule {
                 condition: None,
                 lhs: Sexp::from_str("(BVOp2 (Shl) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 1)))").unwrap(),
                 rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 2)))").unwrap(),
             }],
-            &atoms,
             &mask_to_preds,
         );
     }
