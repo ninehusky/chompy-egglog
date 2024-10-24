@@ -155,17 +155,29 @@ pub trait Chomper {
                 for (i, rule) in rules.iter().enumerate() {
                     let lhs = self.make_string_not_bad(rule.lhs.to_string().as_str());
                     let rhs = self.make_string_not_bad(rule.rhs.to_string().as_str());
-                    if egraph
+                    if rule.condition.is_some()
+                        && egraph
+                            .parse_and_run_program(
+                                None,
+                                format!(
+                                    r#"
+                                (check (cond-equal {lhs} {rhs}))
+                                "#
+                                )
+                                .as_str(),
+                            )
+                            .is_ok()
+                    {
+                        found[i] = true;
+                    } else if egraph
                         .parse_and_run_program(
                             None,
                             format!(
                                 r#"
-                            {lhs}
-                            {rhs}
-                            ; (run-schedule
-                            ;     (saturate non-cond-rewrites))
-                            (check (= {lhs} {rhs}))
-                            "#
+                                {lhs}
+                                {rhs}
+                                (check (= {lhs} {rhs}))
+                                "#
                             )
                             .as_str(),
                         )
@@ -202,11 +214,11 @@ pub trait Chomper {
                 }
 
                 for val in &vals.conditional {
-                    println!(
-                        "if {} then {} ~> {}",
-                        val.condition.as_ref().unwrap(),
-                        val.lhs,
-                        val.rhs
+                    self.add_conditional_rewrite(
+                        egraph,
+                        val.condition.clone().unwrap(),
+                        val.lhs.clone(),
+                        val.rhs.clone(),
                     );
                 }
 
@@ -328,15 +340,12 @@ pub trait Chomper {
                         continue;
                     }
 
-                    // we want sufficient conditions, not sufficent and necessary.
+                    // sufficient and necessary conditions.
+                    // we may want to experiment with just having sufficient conditions.
                     let masks = mask_to_preds.keys().filter(|mask| {
                         mask.iter()
                             .zip(same_vals.iter())
-                            .all(|(mask_val, same_val)| {
-                                // pred --> lhs == rhs
-                                // pred OR not lhs == rhs
-                                mask_val == same_val
-                            })
+                            .all(|(mask_val, same_val)| mask_val == same_val)
                     });
 
                     for mask in masks {
@@ -356,12 +365,6 @@ pub trait Chomper {
                                 lhs: term2.clone(),
                                 rhs: term1.clone(),
                             });
-                            self.add_conditional_rewrite(
-                                egraph,
-                                Sexp::from_str(pred).unwrap(),
-                                term1.clone(),
-                                term2.clone(),
-                            );
                         }
                     }
                 }
