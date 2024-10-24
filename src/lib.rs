@@ -393,7 +393,10 @@ pub trait Chomper {
     }
 
     fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
+        // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
+        // specific condition (see #20).
         let _pred = self.make_string_not_bad(cond.to_string().as_str());
+
         let term1 = self.make_string_not_bad(lhs.to_string().as_str());
         let term2 = self.make_string_not_bad(rhs.to_string().as_str());
         info!(
