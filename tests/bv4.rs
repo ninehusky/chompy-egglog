@@ -21,7 +21,7 @@ pub struct Bitvector {
 }
 
 const MAX_BITWIDTH: usize = 4;
-const CVEC_LEN: usize = 6;
+const CVEC_LEN: usize = 50;
 
 pub struct BitvectorChomper {
     pub value_env: HashMap<String, Vec<u64>>,

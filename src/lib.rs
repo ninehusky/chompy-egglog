@@ -146,8 +146,8 @@ pub trait Chomper {
             loop {
                 info!("starting cvec match");
                 let vals = self.cvec_match(egraph, mask_to_preds);
-                println!("found {} non-conditional rules", vals.non_conditional.len());
-                println!("found {} conditional rules", vals.conditional.len());
+                info!("found {} non-conditional rules", vals.non_conditional.len());
+                info!("found {} conditional rules", vals.conditional.len());
                 if vals.non_conditional.is_empty() {
                     break;
                 }
