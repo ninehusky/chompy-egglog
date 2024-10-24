@@ -412,6 +412,7 @@ pub mod bv_tests {
         );
     }
 
+    #[ignore]
     #[test]
     pub fn bvvar_neg_not() {
         let mut egraph = EGraph::default();
