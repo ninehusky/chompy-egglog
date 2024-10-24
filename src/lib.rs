@@ -125,13 +125,14 @@ pub trait Chomper {
                     .filter(filter)
             };
 
-            println!("new workload len: {}", new_workload.force().len());
+            info!("new workload len: {}", new_workload.force().len());
 
             for term in &new_workload.force() {
                 // TODO: re-include this.
                 // if get_ast_size(term) < current_size {
                 //     panic!();
                 // }
+                println!("term: {}", term);
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
                 egraph
                     .parse_and_run_program(
@@ -167,8 +168,8 @@ pub trait Chomper {
                                 r#"
                             {lhs}
                             {rhs}
-                            (run-schedule
-                                (saturate non-cond-rewrites))
+                            ; (run-schedule
+                            ;     (saturate non-cond-rewrites))
                             (check (= {lhs} {rhs}))
                             "#
                             )
@@ -193,8 +194,8 @@ pub trait Chomper {
                                 r#"
                             {lhs}
                             {rhs}
-                            (run-schedule
-                                (saturate non-cond-rewrites))
+                            ; (run-schedule
+                            ;     (saturate non-cond-rewrites))
                             (check (= {lhs} {rhs}))
                             "#
                             )
@@ -205,6 +206,16 @@ pub trait Chomper {
                         self.add_rewrite(egraph, val.lhs.clone(), val.rhs.clone());
                     };
                 }
+
+                egraph
+                    .parse_and_run_program(
+                        None,
+                        r#"
+                        (run-schedule
+                            (saturate non-cond-rewrites))
+                    "#,
+                    )
+                    .unwrap();
             }
         }
 
@@ -277,6 +288,8 @@ pub trait Chomper {
                         rhs: term1.clone(),
                     });
                 } else {
+                    // TODO: we're going to ignore conditionals for now, there are too many.
+                    continue;
                     if egraph
                         .parse_and_run_program(
                             None,
@@ -284,7 +297,7 @@ pub trait Chomper {
                         )
                         .is_ok()
                     {
-                        println!("skipping");
+                        info!("skipping");
                         continue;
                     }
 
@@ -376,11 +389,11 @@ pub trait Chomper {
         let _pred = self.make_string_not_bad(cond.to_string().as_str());
         let term1 = self.make_string_not_bad(lhs.to_string().as_str());
         let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        println!(
+        info!(
             "adding conditional rewrite: {} -> {} if {}",
             term1, term2, _pred
         );
-        println!("term2 has cvec: {:?}", self.interpret_term(&rhs));
+        info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
         egraph
             .parse_and_run_program(
                 None,
