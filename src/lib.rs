@@ -92,7 +92,7 @@ pub trait Chomper {
 
         // invariant: `corpus` contains all programs of size `i`.
         for current_size in 0..MAX_SIZE {
-            println!("adding programs of size {}:", current_size);
+            info!("adding programs of size {}:", current_size);
 
             let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
             if current_size > 15 {
@@ -132,7 +132,6 @@ pub trait Chomper {
                 // if get_ast_size(term) < current_size {
                 //     panic!();
                 // }
-                println!("term: {}", term);
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
                 egraph
                     .parse_and_run_program(
