@@ -1,5 +1,5 @@
 use chompy::{utils::TERM_PLACEHOLDER, CVec, Chomper, Rule, Value};
-use enumo::{Sexp, Workload};
+use enumo::{Pattern, Sexp, Workload};
 use ruler::*;
 use std::str::FromStr;
 
@@ -22,6 +22,10 @@ impl Chomper for MathLanguage {
     type Constant = i64;
     // we'll never use this, but it has to be here.
     type Value = i64;
+
+    fn get_constant_pattern(&self) -> Pattern {
+        "(Num ?n)".parse().unwrap()
+    }
 
     // In this language, all variables take on the same value.
     // See `interpret_term` for how we handle variables.

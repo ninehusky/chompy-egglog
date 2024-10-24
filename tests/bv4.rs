@@ -1,12 +1,12 @@
 use chompy::{init_egraph, Chomper, Value};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruler::{
-    enumo::{Sexp, Workload},
+    enumo::{Pattern, Sexp, Workload},
     HashMap, HashSet, ValidationResult,
 };
 
 use chompy::Rule;
-use log::{info, warn};
+use log::warn;
 
 use egglog::EGraph;
 
@@ -33,6 +33,10 @@ pub struct BitvectorChomper {
 impl Chomper for BitvectorChomper {
     type Constant = Bitvector;
     type Value = u64;
+
+    fn get_constant_pattern(&self) -> Pattern {
+        "(Bitvector ?width (ValueNum ?value))".parse().unwrap()
+    }
 
     fn atoms(&self) -> Workload {
         Workload::new(&[

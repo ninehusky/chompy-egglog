@@ -1,4 +1,5 @@
 use egglog::EGraph;
+use ruler::enumo::Pattern;
 use ruler::{HashMap, HashSet, ValidationResult};
 use utils::TERM_PLACEHOLDER;
 
@@ -64,15 +65,6 @@ pub trait Chomper {
         result
     }
 
-    fn make_initial_corpus(&self) -> Vec<Workload> {
-        let mut corpus: Vec<Vec<String>> = vec![vec![]; MAX_SIZE];
-        for atom in &self.atoms().force() {
-            let size = utils::get_ast_size(atom);
-            corpus[size].push(atom.to_string());
-        }
-        corpus.into_iter().map(Workload::new).collect()
-    }
-
     fn run_chompy(
         &mut self,
         egraph: &mut EGraph,
@@ -83,16 +75,12 @@ pub trait Chomper {
 
         let mut max_eclass_id = 0;
 
-        // invariant: `corpus` contains all programs of size `i`.
         for current_size in 0..MAX_SIZE {
             info!("adding programs of size {}:", current_size);
 
             let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
             if current_size > 15 {
-                filter = Filter::And(vec![
-                    filter,
-                    Filter::Excludes("(Bitvector ?x (ValueNum ?y))".parse().unwrap()),
-                ]);
+                filter = Filter::And(vec![filter, Filter::Excludes(self.get_constant_pattern())]);
             }
 
             info!("finding eclass term map...");
@@ -121,10 +109,6 @@ pub trait Chomper {
             info!("new workload len: {}", new_workload.force().len());
 
             for term in &new_workload.force() {
-                // TODO: re-include this.
-                // if get_ast_size(term) < current_size {
-                //     panic!();
-                // }
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
                 egraph
                     .parse_and_run_program(
@@ -153,7 +137,7 @@ pub trait Chomper {
                 for (i, rule) in rules.iter().enumerate() {
                     let lhs = self.make_string_not_bad(rule.lhs.to_string().as_str());
                     let rhs = self.make_string_not_bad(rule.rhs.to_string().as_str());
-                    if rule.condition.is_some()
+                    if (rule.condition.is_some()
                         && egraph
                             .parse_and_run_program(
                                 None,
@@ -164,25 +148,22 @@ pub trait Chomper {
                                 )
                                 .as_str(),
                             )
-                            .is_ok()
-                    {
-                        found[i] = true;
-                    } else if egraph
-                        .parse_and_run_program(
-                            None,
-                            format!(
-                                r#"
-                                {lhs}
-                                {rhs}
+                            .is_ok())
+                        || (rule.condition.is_none()
+                            && egraph
+                                .parse_and_run_program(
+                                    None,
+                                    format!(
+                                        r#"
                                 (check (= {lhs} {rhs}))
                                 "#
-                            )
-                            .as_str(),
-                        )
-                        .is_ok()
+                                    )
+                                    .as_str(),
+                                )
+                                .is_ok())
                     {
                         found[i] = true;
-                    };
+                    }
                     if found.iter().all(|x| *x) {
                         return;
                     }
@@ -391,7 +372,6 @@ pub trait Chomper {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
         let _pred = self.make_string_not_bad(cond.to_string().as_str());
-
         let term1 = self.make_string_not_bad(lhs.to_string().as_str());
         let term2 = self.make_string_not_bad(rhs.to_string().as_str());
         info!(
@@ -413,9 +393,6 @@ pub trait Chomper {
             .unwrap();
     }
 
-    // returns the productions in the language.
-    // returns some array result, where result[i] contains
-    // the productions that add `i` to the size of the program.
     fn productions(&self) -> Workload;
     fn atoms(&self) -> Workload;
     fn make_preds(&self) -> Workload;
@@ -423,4 +400,5 @@ pub trait Chomper {
     fn validate_rule(&self, rule: Rule) -> ValidationResult;
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
     fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
+    fn get_constant_pattern(&self) -> Pattern;
 }
