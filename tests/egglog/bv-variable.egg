@@ -4,7 +4,6 @@
    (ValueVar String)
    (ValueNum i64))
 
-
 (datatype BVOp
    (Shl)
    (Shr)
@@ -23,10 +22,10 @@
 (sort BVTermVec (Vec BVTerm))
 
 (function Bitvector (BVValue BVValue) BVTerm)
-(function BVOp1 (BVOp BVTerm) BVTerm)
-(function BVOp2 (BVOp BVTerm BVTerm) BVTerm)
-(function BVOp3 (BVOp BVTerm BVTerm BVTerm) BVTerm)
-(function BVOpn (BVOp BVTermVec) BVTerm)
+(function BVOp1 (BVValue BVOp BVTerm) BVTerm)
+(function BVOp2 (BVValue BVOp BVTerm BVTerm) BVTerm)
+(function BVOp3 (BVValue BVOp BVTerm BVTerm BVTerm) BVTerm)
+(function BVOpn (BVValue BVOp BVTermVec) BVTerm)
 
 ;;; predicates
 (sort Pred)
@@ -36,7 +35,7 @@
 
 (function PredOp2 (PredOp BVValue BVValue) Pred)
 
-(relation cond-equal (BVTerm BVTerm))
+(relation cond-equal (Pred BVTerm BVTerm))
 
 (function eclass (BVTerm) i64 :merge (min old new))
 (function pred-eclass (Pred) i64 :merge (min old new))

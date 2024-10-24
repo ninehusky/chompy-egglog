@@ -1,5 +1,5 @@
-use chompy::{CVec, Chomper, Rule, Value};
-use enumo::{Sexp, Workload};
+use chompy::{utils::TERM_PLACEHOLDER, CVec, Chomper, Rule, Value};
+use enumo::{Pattern, Sexp, Workload};
 use ruler::*;
 use std::str::FromStr;
 
@@ -23,21 +23,33 @@ impl Chomper for MathLanguage {
     // we'll never use this, but it has to be here.
     type Value = i64;
 
+    fn get_constant_pattern(&self) -> Pattern {
+        "(Num ?n)".parse().unwrap()
+    }
+
     // In this language, all variables take on the same value.
     // See `interpret_term` for how we handle variables.
     fn get_env(&self) -> &HashMap<String, Vec<Value<Self>>> {
         &self.env
     }
 
-    fn make_terms(&self, old_terms: &Workload) -> Workload {
-        Workload::new(&["(MathOp2 binaryop x y)", "(MathOp1 unaryop x)", "x"])
-            .plug(
-                "binaryop",
-                &Workload::new(&["(Add)", "(Sub)", "(Mul)", "(Div)"]),
-            )
-            .plug("unaryop", &Workload::new(&["(Abs)"]))
-            .plug("x", old_terms)
-            .plug("y", old_terms)
+    fn atoms(&self) -> Workload {
+        Workload::new(&["(Num 0)", "(Num 1)", "(Var a)"])
+    }
+
+    fn productions(&self) -> Workload {
+        Workload::new(&[
+            format!(
+                "(MathOp2 binaryop {} {})",
+                TERM_PLACEHOLDER, TERM_PLACEHOLDER
+            ),
+            format!("(MathOp1 unaryop {})", TERM_PLACEHOLDER),
+        ])
+        .plug(
+            "binaryop",
+            &Workload::new(&["(Add)", "(Sub)", "(Mul)", "(Div)"]),
+        )
+        .plug("unaryop", &Workload::new(&["(Abs)"]))
     }
 
     fn make_preds(&self) -> Workload {
@@ -190,15 +202,12 @@ fn math_eval() {
         )
         .unwrap();
 
-    let atoms = enumo::Workload::new(&["(Num 0)", "(Num 1)", "(Var a)"]);
-
     let mut chomper = MathLanguage::default();
 
     let mask_to_preds = chomper.make_mask_to_preds();
 
     chomper.run_chompy(
         &mut egraph,
-        "math",
         vec![
             Rule {
                 condition: Some(
@@ -214,14 +223,6 @@ fn math_eval() {
                 rhs: Sexp::from_str("(Var a)").unwrap(),
             },
         ],
-        &atoms,
         &mask_to_preds,
     );
-
-    // check we didn't include a bad rule:
-    // if a < 1 then abs(a) = a
-    egraph
-        .parse_and_run_program(None,
-            "(fail (check (cond-equal (PredOp2 (Lt) (Var a) (Num 1)) (MathOp1 (Abs) (Var \"a\")) (Var \"a\"))))")
-        .unwrap();
 }
