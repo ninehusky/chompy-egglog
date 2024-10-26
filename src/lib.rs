@@ -329,9 +329,6 @@ pub trait Chomper {
                 continue;
             }
             for ec2 in ec_keys.iter().skip(i + 1) {
-                // println!("first commit. but eventually, we should do something where we only cvec match outer loop for NEW eclasses.");
-                // println!("and explore randomly sampling from the generated terms after the
-                // eclass term map gets too big.");
                 let term2 = eclass_term_map.get(ec2).unwrap();
 
                 let cvec2 = self.interpret_term(term2);

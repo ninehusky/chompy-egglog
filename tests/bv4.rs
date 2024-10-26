@@ -77,7 +77,7 @@ impl Chomper for BitvectorChomper {
 
     fn atoms(&self) -> Workload {
         Workload::new(&[
-            // TODO: adding this in blows the egraph up.
+            // TODO: adding this in blows the egraph up. See #23.
             // "(Bitvector (ValueNum 4) (ValueNum 0))",
             "(Bitvector (ValueNum 4) (ValueNum 1))",
             "(Bitvector (ValueNum 4) (ValueNum 2))",
@@ -91,7 +91,7 @@ impl Chomper for BitvectorChomper {
     fn productions(&self) -> Workload {
         let unary_ops = vec!["(Neg)", "(Not)"];
         // let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
-        // TODO: disabling comparison operators for now.
+        // TODO: disabling comparison operators for now. See #24.
         let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)"];
         Workload::new(&[
             format!("(BVOp2 binop {} {})", TERM_PLACEHOLDER, TERM_PLACEHOLDER),
