@@ -11,3 +11,5 @@ lazy_static = "1.5.0"
 ruler = { path = "./ruler" }
 rand = "0.8.5"
 log = "0.4.22"
+# same version as ruler
+z3 = {version = "0.10.0", features = ["static-link-z3"]}

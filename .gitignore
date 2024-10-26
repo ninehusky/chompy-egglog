@@ -29,3 +29,5 @@ Cargo.lock
 *output.txt
 
 diary.md
+
+.z3-trace
