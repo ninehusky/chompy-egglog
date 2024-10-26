@@ -23,8 +23,12 @@ impl Chomper for MathLanguage {
     // we'll never use this, but it has to be here.
     type Value = i64;
 
-    fn get_constant_pattern(&self) -> Pattern {
+    fn constant_pattern(&self) -> Pattern {
         "(Num ?n)".parse().unwrap()
+    }
+
+    fn matches_var_pattern(&self, term: &Sexp) -> bool {
+        matches!(term, Sexp::List(ref l) if l[0] == Sexp::Atom("Var".into()))
     }
 
     // In this language, all variables take on the same value.
@@ -78,7 +82,7 @@ impl Chomper for MathLanguage {
             )
     }
 
-    fn validate_rule(&self, _rule: Rule) -> ValidationResult {
+    fn validate_rule(&self, _rule: &Rule) -> ValidationResult {
         ValidationResult::Valid
     }
 

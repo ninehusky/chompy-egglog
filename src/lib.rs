@@ -75,12 +75,14 @@ pub trait Chomper {
 
         let mut max_eclass_id = 0;
 
+        let mut added_rules: HashSet<String> = HashSet::default();
+
         for current_size in 0..MAX_SIZE {
             info!("adding programs of size {}:", current_size);
 
             let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
             if current_size > 15 {
-                filter = Filter::And(vec![filter, Filter::Excludes(self.get_constant_pattern())]);
+                filter = Filter::And(vec![filter, Filter::Excludes(self.constant_pattern())]);
             }
 
             info!("finding eclass term map...");
@@ -98,7 +100,7 @@ pub trait Chomper {
             );
 
             let new_workload = if term_workload.force().is_empty() {
-                self.atoms().clone()
+                self.atoms().clone().filter(filter)
             } else {
                 self.productions()
                     .clone()
@@ -106,10 +108,16 @@ pub trait Chomper {
                     .filter(filter)
             };
 
-            info!("new workload len: {}", new_workload.force().len());
+            println!("new workload len: {}", new_workload.force().len());
+
+            let atoms = self.atoms().force();
 
             for term in &new_workload.force() {
+                println!("term: {}", term);
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
+                if !atoms.contains(&term) && !self.has_var(&term) {
+                    continue;
+                }
                 egraph
                     .parse_and_run_program(
                         None,
@@ -170,24 +178,44 @@ pub trait Chomper {
                 }
 
                 for val in &vals.non_conditional {
-                    let lhs = self.make_string_not_bad(val.lhs.to_string().as_str());
-                    let rhs = self.make_string_not_bad(val.rhs.to_string().as_str());
-                    if egraph
-                        .parse_and_run_program(
-                            None,
-                            format!(
-                                r#"
-                            {lhs}
-                            {rhs}
-                            (check (= {lhs} {rhs}))
-                            "#
-                            )
-                            .as_str(),
-                        )
-                        .is_err()
+                    let generalized = self.generalize_rule(val);
+                    if !added_rules.contains(format!("!{:?}", generalized).as_str())
+                        && utils::does_rule_have_good_vars(&generalized)
                     {
-                        self.add_rewrite(egraph, val.lhs.clone(), val.rhs.clone());
-                    };
+                        let lhs = self.make_string_not_bad(generalized.lhs.to_string().as_str());
+                        let rhs = self.make_string_not_bad(generalized.rhs.to_string().as_str());
+                        if egraph
+                            .parse_and_run_program(
+                                None,
+                                format!(
+                                    r#"
+                                {lhs}
+                                {rhs}
+                                (check (= {lhs} {rhs}))
+                                "#
+                                )
+                                .as_str(),
+                            )
+                            .is_err()
+                        {
+                            match self.validate_rule(&generalized) {
+                                ValidationResult::Valid => {
+                                    println!(
+                                        "adding rule: {} ~> {}",
+                                        generalized.lhs.to_string(),
+                                        generalized.rhs.to_string()
+                                    );
+                                    self.add_rewrite(
+                                        egraph,
+                                        generalized.lhs.clone(),
+                                        generalized.rhs.clone(),
+                                    );
+                                    added_rules.insert(format!("!{:?}", generalized));
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
                 }
 
                 for val in &vals.conditional {
@@ -212,6 +240,40 @@ pub trait Chomper {
         }
 
         panic!("not all rules were found");
+    }
+
+    fn generalize_sexp(&self, sexp: Sexp, id_to_gen_id: &mut HashMap<String, String>) -> Sexp {
+        match sexp {
+            Sexp::Atom(atom) => Sexp::Atom(atom),
+            Sexp::List(list) => {
+                let mut els = vec![];
+                for el in list {
+                    if self.matches_var_pattern(&el) {
+                        let var_name = el.to_string();
+                        let len = id_to_gen_id.len();
+                        id_to_gen_id
+                            .entry(var_name.clone())
+                            .or_insert_with(|| ruler::letter(len).to_string());
+                        els.push(Sexp::Atom(format!("?{}", id_to_gen_id[&var_name])));
+                    } else {
+                        els.push(self.generalize_sexp(el, id_to_gen_id));
+                    }
+                }
+                Sexp::List(els)
+            }
+        }
+    }
+
+    fn generalize_rule(&self, rule: &Rule) -> Rule {
+        let mut id_to_gen_id: HashMap<String, String> = HashMap::default();
+        let new_lhs = self.generalize_sexp(rule.lhs.clone(), &mut id_to_gen_id);
+        let new_rhs = self.generalize_sexp(rule.rhs.clone(), &mut id_to_gen_id);
+        Rule {
+            // TODO: later
+            condition: None,
+            lhs: new_lhs,
+            rhs: new_rhs,
+        }
     }
 
     fn reset_eclass_term_map(&self, egraph: &mut EGraph) -> HashMap<i64, Sexp> {
@@ -393,12 +455,27 @@ pub trait Chomper {
             .unwrap();
     }
 
+    fn has_var(&self, term: &Sexp) -> bool {
+        match term {
+            Sexp::Atom(_) => self.matches_var_pattern(&term),
+            Sexp::List(list) => {
+                for el in list {
+                    if self.matches_var_pattern(el) || self.has_var(el) {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+
     fn productions(&self) -> Workload;
     fn atoms(&self) -> Workload;
     fn make_preds(&self) -> Workload;
     fn get_env(&self) -> &HashMap<String, Vec<Value<Self>>>;
-    fn validate_rule(&self, rule: Rule) -> ValidationResult;
+    fn validate_rule(&self, rule: &Rule) -> ValidationResult;
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
     fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
-    fn get_constant_pattern(&self) -> Pattern;
+    fn constant_pattern(&self) -> Pattern;
+    fn matches_var_pattern(&self, term: &Sexp) -> bool;
 }

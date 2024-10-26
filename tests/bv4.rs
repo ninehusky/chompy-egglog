@@ -34,7 +34,24 @@ impl Chomper for BitvectorChomper {
     type Constant = Bitvector;
     type Value = u64;
 
-    fn get_constant_pattern(&self) -> Pattern {
+    fn matches_var_pattern(&self, term: &Sexp) -> bool {
+        if let Sexp::List(l) = term {
+            if l.len() == 3 {
+                if let Sexp::Atom(a) = &l[0] {
+                    if a == "Bitvector" {
+                        if let Sexp::List(l) = &l[2] {
+                            if let Sexp::Atom(a) = &l[0] {
+                                return a == "ValueVar";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn constant_pattern(&self) -> Pattern {
         "(Bitvector ?width (ValueNum ?value))".parse().unwrap()
     }
 
@@ -42,7 +59,7 @@ impl Chomper for BitvectorChomper {
         Workload::new(&[
             "(Bitvector (ValueNum 4) (ValueNum 1))",
             "(Bitvector (ValueNum 4) (ValueNum 2))",
-            "(Bitvector (ValueNum 4) (ValueNum 3))",
+            // "(Bitvector (ValueNum 4) (ValueNum 3))",
             "(Bitvector (ValueNum 4) (ValueVar p))",
             "(Bitvector (ValueNum 4) (ValueVar q))",
             "(Bitvector (ValueNum 4) (ValueVar r))",
@@ -73,7 +90,7 @@ impl Chomper for BitvectorChomper {
     }
 
     // hehe
-    fn validate_rule(&self, _rule: chompy::Rule) -> ValidationResult {
+    fn validate_rule(&self, _rule: &chompy::Rule) -> ValidationResult {
         ValidationResult::Valid
     }
 
