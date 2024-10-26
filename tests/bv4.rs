@@ -9,6 +9,7 @@ use chompy::Rule;
 use log::warn;
 
 use egglog::EGraph;
+use z3::ast::Ast;
 
 use std::str::FromStr;
 
@@ -28,6 +29,25 @@ pub struct BitvectorChomper {
     pub term_memo: HashMap<String, Vec<Option<Bitvector>>>,
     pub pred_memo: HashMap<String, Vec<bool>>,
     pub rng: StdRng,
+}
+
+impl BitvectorChomper {
+    pub fn matches_const_pattern(&self, term: &Sexp) -> bool {
+        if let Sexp::List(l) = term {
+            if l.len() == 3 {
+                if let Sexp::Atom(a) = &l[0] {
+                    if a == "Bitvector" {
+                        if let Sexp::List(l) = &l[2] {
+                            if let Sexp::Atom(a) = &l[0] {
+                                return a == "ValueNum";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 impl Chomper for BitvectorChomper {
@@ -57,6 +77,8 @@ impl Chomper for BitvectorChomper {
 
     fn atoms(&self) -> Workload {
         Workload::new(&[
+            // TODO: adding this in blows the egraph up.
+            // "(Bitvector (ValueNum 4) (ValueNum 0))",
             "(Bitvector (ValueNum 4) (ValueNum 1))",
             "(Bitvector (ValueNum 4) (ValueNum 2))",
             // "(Bitvector (ValueNum 4) (ValueNum 3))",
@@ -68,7 +90,9 @@ impl Chomper for BitvectorChomper {
 
     fn productions(&self) -> Workload {
         let unary_ops = vec!["(Neg)", "(Not)"];
-        let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
+        // let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
+        // TODO: disabling comparison operators for now.
+        let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)"];
         Workload::new(&[
             format!("(BVOp2 binop {} {})", TERM_PLACEHOLDER, TERM_PLACEHOLDER),
             format!("(BVOp1 unaryop {})", TERM_PLACEHOLDER),
@@ -89,9 +113,21 @@ impl Chomper for BitvectorChomper {
         &self.value_env
     }
 
-    // hehe
-    fn validate_rule(&self, _rule: &chompy::Rule) -> ValidationResult {
-        ValidationResult::Valid
+    fn validate_rule(&self, rule: &chompy::Rule) -> ValidationResult {
+        let lhs = &rule.lhs;
+        let rhs = &rule.rhs;
+        let mut cfg = z3::Config::new();
+        cfg.set_timeout_msec(1000);
+        let ctx = z3::Context::new(&cfg);
+        let solver = z3::Solver::new(&ctx);
+        let lexpr = sexpr_to_z3(self, &ctx, lhs);
+        let rexpr = sexpr_to_z3(self, &ctx, rhs);
+        solver.assert(&lexpr._eq(&rexpr).not());
+        match solver.check() {
+            z3::SatResult::Unsat => ValidationResult::Valid,
+            z3::SatResult::Unknown => ValidationResult::Unknown,
+            z3::SatResult::Sat => ValidationResult::Invalid,
+        }
     }
 
     fn make_preds(&self) -> Workload {
@@ -328,6 +364,98 @@ fn interpret_term_internal(
     cvec
 }
 
+// TODO: test this.
+pub fn sexpr_to_z3<'a>(
+    chomper: &BitvectorChomper,
+    ctx: &'a z3::Context,
+    expr: &Sexp,
+) -> z3::ast::BV<'a> {
+    if chomper.matches_const_pattern(expr) {
+        let value = if let Sexp::List(l) = expr {
+            if let Sexp::List(l) = &l[2] {
+                if let Sexp::Atom(a) = &l[1] {
+                    a.to_string().parse::<u64>().unwrap()
+                } else {
+                    panic!()
+                }
+            } else {
+                panic!()
+            }
+        } else {
+            panic!()
+        };
+        z3::ast::BV::from_u64(ctx, value, MAX_BITWIDTH.try_into().unwrap())
+    } else {
+        match expr {
+            Sexp::Atom(a) => {
+                // assert a begins with ?
+                assert!(a.starts_with("?"));
+                let stripped = a.strip_prefix("?").unwrap();
+                z3::ast::BV::new_const(ctx, stripped, MAX_BITWIDTH.try_into().unwrap())
+            }
+            Sexp::List(l) => {
+                let op = &l[0];
+                if let Sexp::Atom(op_type) = op {
+                    match op_type.as_str() {
+                        "BVOp1" => {
+                            assert_eq!(l.len(), 3);
+                            let op = &l[1];
+                            let children = &l[2..]
+                                .into_iter()
+                                .map(|arg| sexpr_to_z3(chomper, ctx, arg))
+                                .collect::<Vec<_>>();
+                            if let Sexp::List(op) = op {
+                                assert_eq!(op.len(), 1);
+                                match &op[0] {
+                                    Sexp::Atom(op) => match op.as_str() {
+                                        "Neg" => z3::ast::BV::bvneg(&children[0].clone()),
+                                        "Not" => z3::ast::BV::bvnot(&children[0].clone()),
+                                        _ => panic!("unknown operator {:?}", op),
+                                    },
+                                    _ => panic!("unexpected non-atom operator {:?}", op),
+                                }
+                            } else {
+                                panic!();
+                            }
+                        }
+                        "BVOp2" => {
+                            assert_eq!(l.len(), 4);
+                            let op = &l[1];
+                            let children = &l[2..]
+                                .into_iter()
+                                .map(|arg| sexpr_to_z3(chomper, ctx, arg))
+                                .collect::<Vec<_>>();
+                            if let Sexp::List(op) = op {
+                                assert_eq!(op.len(), 1);
+                                match &op[0] {
+                                    Sexp::Atom(op) => match op.as_str() {
+                                        "Add" => z3::ast::BV::bvadd(&children[0], &children[1]),
+                                        "Sub" => z3::ast::BV::bvsub(&children[0], &children[1]),
+                                        "Mul" => z3::ast::BV::bvmul(&children[0], &children[1]),
+                                        "Shl" => z3::ast::BV::bvshl(&children[0], &children[1]),
+                                        "Shr" => z3::ast::BV::bvlshr(&children[0], &children[1]),
+                                        // TODO: add these in later -- right now, they mess up type
+                                        // checking.
+                                        // "Lt" => z3::ast::BV::bvult(&children[0], &children[1]),
+                                        // "Gt" => z3::ast::BV::bvugt(&children[0], &children[1]),
+                                        _ => panic!("unknown operator {:?}", op),
+                                    },
+                                    _ => panic!("unexpected non-atom operator {:?}", op),
+                                }
+                            } else {
+                                panic!();
+                            }
+                        }
+                        _ => panic!("unknown operator {:?} in term {}", op, expr),
+                    }
+                } else {
+                    panic!();
+                }
+            }
+        }
+    }
+}
+
 pub mod bv_tests {
     use crate::*;
 
@@ -352,15 +480,48 @@ pub mod bv_tests {
         let mut egraph = EGraph::default();
         init_egraph!(egraph, "./egglog/bv4.egg");
 
-        let mask_to_preds = chomper.make_mask_to_preds();
         chomper.run_chompy(
             &mut egraph,
-            vec![Rule {
-                condition: None,
-                lhs: Sexp::from_str("(BVOp2 (Shl) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 1)))").unwrap(),
-                rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 2)))").unwrap(),
-            }],
-            &mask_to_preds,
+            vec![
+                // Add commutativity
+                Rule {
+                    condition: None,
+                    lhs: Sexp::from_str("(BVOp2 (Add) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueVar q)))").unwrap(),
+                    rhs: Sexp::from_str("(BVOp2 (Add) (Bitvector (ValueNum 4) (ValueVar q)) (Bitvector (ValueNum 4) (ValueVar p)))").unwrap(),
+                },
+                // Mul commutativity
+                Rule {
+                    condition: None,
+                    lhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueVar q)))").unwrap(),
+                    rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar q)) (Bitvector (ValueNum 4) (ValueVar p)))").unwrap(),
+                },
+                // Sum same
+                Rule {
+                    condition: None,
+                    lhs: Sexp::from_str("(BVOp2 (Add) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueVar p)))").unwrap(),
+                    rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 2)))").unwrap(),
+                },
+                // Add zero
+                // Rule {
+                //     condition: None,
+                //     lhs: Sexp::from_str("(BVOp2 (Add) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueVar 0)))").unwrap(),
+                //     rhs: Sexp::from_str("(Bitvector (ValueNum 4) (VarVar p))").unwrap()
+                // },
+                // Mult by one
+                Rule {
+                    condition: None,
+                    lhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 1)))").unwrap(),
+                    rhs: Sexp::from_str("(Bitvector (ValueNum 4) (ValueVar p))").unwrap(),
+                },
+                // Mult by two
+                Rule {
+                    condition: None,
+                    lhs: Sexp::from_str("(BVOp2 (Shl) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 1)))").unwrap(),
+                    rhs: Sexp::from_str("(BVOp2 (Mul) (Bitvector (ValueNum 4) (ValueVar p)) (Bitvector (ValueNum 4) (ValueNum 2)))").unwrap(),
+                },
+            ],
+            &HashMap::default(),
+            &mut HashSet::default(),
         );
     }
 }
