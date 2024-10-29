@@ -13,3 +13,4 @@ rand = "0.8.5"
 log = "0.4.22"
 # same version as ruler
 z3 = {version = "0.10.0", features = ["static-link-z3"]}
+itertools = "0.13.0"

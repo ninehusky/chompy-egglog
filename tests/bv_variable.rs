@@ -1,10 +1,13 @@
-use chompy::{Chomper, Value};
+use chompy::{Chomper, Rule, Value};
+use itertools::Itertools;
 use log::warn;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use ruler::{
     enumo::{Pattern, Sexp, Workload},
     HashMap, HashSet, ValidationResult,
 };
+use std::str::FromStr;
+use z3::ast::Ast;
 
 use chompy::utils::TERM_PLACEHOLDER;
 
@@ -51,8 +54,8 @@ impl Chomper for BitvectorChomper {
     }
 
     fn productions(&self) -> Workload {
-        let unary_ops = vec!["(Neg)", "(Not)"];
-        let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)", "(Lt)", "(Gt)"];
+        let unary_ops: Vec<&str> = vec![];
+        let binary_ops = vec!["(Add)", "(Sub)", "(Mul)", "(Shl)", "(Shr)"];
         Workload::new(&[
             format!(
                 "(BVOp2 width binop {} {})",
@@ -79,32 +82,286 @@ impl Chomper for BitvectorChomper {
 
     // hehe
     fn validate_rule(&self, rule: &chompy::Rule) -> ValidationResult {
-        println!("validating rule: {} ~> {}", rule.lhs, rule.rhs);
+        let widths: HashSet<String> = self
+            .get_widths(&rule.lhs)
+            .union(&self.get_widths(&rule.rhs))
+            .cloned()
+            .collect();
+
+        let create_envs = || -> Vec<HashMap<String, usize>> {
+            // create a list of k-tuples, where k = |widths|. Each element of the tuple
+            // is a 2-tuple of (width, value). the list should be the cartesian product of
+            // every width mapped to every value from 1..MAX_BITWIDTH.
+            //
+            let mut storage = vec![];
+
+            for width in widths {
+                storage.push(
+                    vec![width]
+                        .into_iter()
+                        .cartesian_product(1..MAX_BITWIDTH)
+                        .collect::<Vec<_>>(),
+                );
+            }
+
+            for val in &storage {
+                // add everything else in storage to some vector. that is, create a vector containing
+                // all elements of storage != val.
+                let mut other_vals = vec![];
+                for other in &storage {
+                    if other != val {
+                        other_vals.push(other);
+                    }
+                }
+            }
+
+            // now, get the cartesian product of all elements of storage.
+            storage
+                .into_iter()
+                .multi_cartesian_product()
+                .map(|tuple| {
+                    let mut env = HashMap::default();
+                    for (width, value) in tuple {
+                        env.insert(width, value);
+                    }
+                    env
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let envs = create_envs();
+        let mut validation_results: Vec<ValidationResult> = vec![];
+
+        for env in envs {
+            let concrete = Self::concretize_rule(rule, &env);
+            let lhs = &concrete.lhs;
+            let rhs = &concrete.rhs;
+            let mut cfg = z3::Config::new();
+            cfg.set_timeout_msec(1000);
+            let ctx = z3::Context::new(&cfg);
+            let solver = z3::Solver::new(&ctx);
+            let lexpr = sexpr_to_z3(self, &ctx, lhs);
+            let rexpr = sexpr_to_z3(self, &ctx, rhs);
+            solver.assert(&lexpr._eq(&rexpr).not());
+            validation_results.push(match solver.check() {
+                z3::SatResult::Unsat => ValidationResult::Valid,
+                z3::SatResult::Unknown => ValidationResult::Unknown,
+                z3::SatResult::Sat => ValidationResult::Invalid,
+            });
+        }
+
+        for result in &validation_results {
+            if let ValidationResult::Invalid = result {
+                return ValidationResult::Invalid;
+            }
+        }
+        println!(
+            "validation results for rule {} ~> {}",
+            rule.lhs.to_string(),
+            rule.rhs.to_string(),
+        );
+        println!("{:?}", validation_results);
+
         ValidationResult::Valid
     }
 
     fn make_preds(&self) -> Workload {
         // TODO: expand this to include more meaningful predicates
-        Workload::new(&[r#"(PredOp2 (Le) (ValueVar "r") (ValueVar "p"))"#])
+        Workload::empty()
     }
 }
 
 impl BitvectorChomper {
-    fn sexp_to_z3(&self, env: HashMap<String, u64>, term: &Sexp) -> String {
-        match term {
-            Sexp::List(l) => {
-                let op = &l[0];
-                match op {
-                    Sexp::Atom(a) => {
-                        let args: Vec<String> =
-                            l[1..].iter().map(|arg| self.sexp_to_z3(env.clone(), arg)).collect();
-                        format!("{}({})", a, args.join(", "))
+    pub fn matches_const_pattern(&self, term: &Sexp) -> bool {
+        if let Sexp::List(l) = term {
+            if l.len() == 3 {
+                if let Sexp::Atom(a) = &l[0] {
+                    if a == "Bitvector" {
+                        if let Sexp::List(l) = &l[2] {
+                            if let Sexp::Atom(a) = &l[0] {
+                                return a == "ValueNum";
+                            }
+                        }
                     }
-                    _ => panic!("unexpected operator: {:?}", op),
                 }
             }
-            Sexp::Atom(a) => a.to_string(),
-            _ => panic!("unexpected term: {:?}", term),
+        }
+        false
+    }
+    fn concretize_rule(rule: &chompy::Rule, env: &HashMap<String, usize>) -> Rule {
+        Rule {
+            condition: None,
+            lhs: Self::concretize_term(&rule.lhs, env),
+            rhs: Self::concretize_term(&rule.rhs, env),
+        }
+    }
+
+    fn concretize_term(term: &Sexp, env: &HashMap<String, usize>) -> Sexp {
+        let mut term_str = term.to_string();
+        for (var, value) in env {
+            term_str = term_str.replace(var, format!("(ValueNum {})", value).as_str());
+        }
+        Sexp::from_str(&term_str).unwrap()
+    }
+
+    // NOTE: assumes that the term is generalized (that is, variables are just ?id rather than
+    // `(ValueVar ?id)`).
+    fn get_width(&self, term: &Sexp) -> String {
+        match term {
+            Sexp::Atom(_) => panic!("unexpected atom"),
+            Sexp::List(l) => {
+                // it will always be the second element.
+                assert!(l.len() >= 2);
+                if let Sexp::Atom(width) = &l[1] {
+                    return width.clone();
+                }
+            }
+        }
+        panic!()
+    }
+
+    fn get_widths(&self, term: &Sexp) -> HashSet<String> {
+        let mut result: HashSet<String> = HashSet::default();
+        fn collect_widths(chomper: &BitvectorChomper, term: &Sexp, result: &mut HashSet<String>) {
+            match term {
+                Sexp::List(ref l) => {
+                    result.insert(chomper.get_width(&term));
+                    for term in l[3..].iter() {
+                        collect_widths(chomper, term, result);
+                    }
+                }
+                Sexp::Atom(_) => (),
+            }
+        }
+        collect_widths(self, &term, &mut result);
+        result
+    }
+}
+
+fn sexpr_to_z3<'a>(
+    chomper: &BitvectorChomper,
+    ctx: &'a z3::Context,
+    expr: &Sexp,
+) -> z3::ast::BV<'a> {
+    fn get_concrete_width(expr: &Sexp) -> u32 {
+        if let Sexp::List(l) = expr {
+            if let Sexp::List(l) = &l[1] {
+                assert_eq!(2, l.len());
+                match (l[0].to_string().as_str(), l[1].to_string().as_str()) {
+                    ("ValueNum", width) => {
+                        return width.parse::<u32>().unwrap();
+                    }
+                    ("ValueVar", _) => panic!("unexpected ValueVar in width"),
+                    _ => panic!("unexpected width type"),
+                };
+            }
+        }
+        panic!("unexpected expression {:?}", expr);
+    }
+    if chomper.matches_const_pattern(expr) {
+        let width = get_concrete_width(expr);
+        let value = if let Sexp::List(l) = expr {
+            if let Sexp::List(l) = &l[2] {
+                if let Sexp::Atom(a) = &l[1] {
+                    a.to_string().parse::<u64>().unwrap()
+                } else {
+                    panic!()
+                }
+            } else {
+                panic!()
+            }
+        } else {
+            panic!()
+        };
+        println!("const value is {}", value);
+        println!("const width is {}", width);
+        let bv_value = z3::ast::BV::from_u64(ctx, value, MAX_BITWIDTH.try_into().unwrap());
+        z3::ast::BV::zero_ext(
+            &z3::ast::BV::extract(&bv_value, width, 0),
+            ((MAX_BITWIDTH as u32) - width).try_into().unwrap(),
+        )
+    } else {
+        match expr {
+            Sexp::List(l) => {
+                let op = &l[0];
+                if let Sexp::Atom(op_type) = op {
+                    let width: u32 = get_concrete_width(expr);
+                    let value = match op_type.as_str() {
+                        "Bitvector" => {
+                            assert_eq!(l.len(), 3);
+                            let value = &l[2];
+                            if let Sexp::Atom(a) = value {
+                                assert!(a.starts_with("?"));
+                                let stripped = a.strip_prefix("?").unwrap();
+                                z3::ast::BV::new_const(
+                                    ctx,
+                                    stripped,
+                                    MAX_BITWIDTH.try_into().unwrap(),
+                                )
+                            } else {
+                                panic!()
+                            }
+                        }
+                        "BVOp1" => {
+                            assert_eq!(l.len(), 4);
+                            let op = &l[2];
+                            let children = &l[3..]
+                                .into_iter()
+                                .map(|arg| sexpr_to_z3(chomper, ctx, arg))
+                                .collect::<Vec<_>>();
+                            if let Sexp::List(op) = op {
+                                assert_eq!(op.len(), 1);
+                                match &op[0] {
+                                    Sexp::Atom(op) => match op.as_str() {
+                                        "Neg" => z3::ast::BV::bvneg(&children[0].clone()),
+                                        "Not" => z3::ast::BV::bvnot(&children[0].clone()),
+                                        _ => panic!("unknown operator {:?}", op),
+                                    },
+                                    _ => panic!("unexpected non-atom operator {:?}", op),
+                                }
+                            } else {
+                                panic!();
+                            }
+                        }
+                        "BVOp2" => {
+                            assert_eq!(l.len(), 5);
+                            let op = &l[2];
+                            let children = &l[3..]
+                                .into_iter()
+                                .map(|arg| sexpr_to_z3(chomper, ctx, arg))
+                                .collect::<Vec<_>>();
+                            if let Sexp::List(op) = op {
+                                assert_eq!(op.len(), 1);
+                                match &op[0] {
+                                    Sexp::Atom(op) => match op.as_str() {
+                                        "Add" => z3::ast::BV::bvadd(&children[0], &children[1]),
+                                        "Sub" => z3::ast::BV::bvsub(&children[0], &children[1]),
+                                        "Mul" => z3::ast::BV::bvmul(&children[0], &children[1]),
+                                        "Shl" => z3::ast::BV::bvshl(&children[0], &children[1]),
+                                        "Shr" => z3::ast::BV::bvlshr(&children[0], &children[1]),
+                                        // TODO: add these in later -- right now, they mess up type
+                                        // checking.
+                                        // "Lt" => z3::ast::BV::bvult(&children[0], &children[1]),
+                                        // "Gt" => z3::ast::BV::bvugt(&children[0], &children[1]),
+                                        _ => panic!("unknown operator {:?}", op),
+                                    },
+                                    _ => panic!("unexpected non-atom operator {:?}", op),
+                                }
+                            } else {
+                                panic!();
+                            }
+                        }
+                        _ => panic!("unknown operator {:?} in term {}", op, expr),
+                    };
+                    z3::ast::BV::zero_ext(
+                        &z3::ast::BV::extract(&value, width, 0),
+                        ((MAX_BITWIDTH as u32) - width).try_into().unwrap(),
+                    )
+                } else {
+                    panic!();
+                }
+            }
+            _ => panic!(),
         }
     }
 }
