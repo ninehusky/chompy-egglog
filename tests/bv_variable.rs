@@ -80,7 +80,6 @@ impl Chomper for BitvectorChomper {
         &self.value_env
     }
 
-    // hehe
     fn validate_rule(&self, rule: &chompy::Rule) -> ValidationResult {
         let widths: HashSet<String> = self
             .get_widths(&rule.lhs)
@@ -273,8 +272,6 @@ fn sexpr_to_z3<'a>(
         } else {
             panic!()
         };
-        println!("const value is {}", value);
-        println!("const width is {}", width);
         let bv_value = z3::ast::BV::from_u64(ctx, value, MAX_BITWIDTH.try_into().unwrap());
         z3::ast::BV::zero_ext(
             &z3::ast::BV::extract(&bv_value, width, 0),
