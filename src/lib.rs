@@ -193,7 +193,6 @@ pub trait Chomper {
                 for val in &vals.non_conditional {
                     let generalized = self.generalize_rule(val);
                     if !found_rules.contains(format!("{:?}", generalized).as_str()) {
-                        found_rules.insert(format!("{:?}", generalized));
                         if utils::does_rule_have_good_vars(&generalized) {
                             let lhs =
                                 self.make_string_not_bad(generalized.lhs.to_string().as_str());
@@ -214,6 +213,10 @@ pub trait Chomper {
                                 .is_err()
                             {
                                 let validated = self.get_validated_rule(&generalized);
+                                if found_rules.contains(format!("{:?}", validated).as_str()) {
+                                    continue;
+                                }
+                                found_rules.insert(format!("{:?}", validated));
                                 if validated.is_none() {
                                     continue;
                                 }
