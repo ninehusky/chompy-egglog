@@ -113,7 +113,7 @@ impl Chomper for BitvectorChomper {
         &self.value_env
     }
 
-    fn validate_rule(&self, rule: &chompy::Rule) -> ValidationResult {
+    fn get_validated_rule(&self, rule: &chompy::Rule) -> Option<Rule> {
         let lhs = &rule.lhs;
         let rhs = &rule.rhs;
         let mut cfg = z3::Config::new();
@@ -123,10 +123,19 @@ impl Chomper for BitvectorChomper {
         let lexpr = sexpr_to_z3(self, &ctx, lhs);
         let rexpr = sexpr_to_z3(self, &ctx, rhs);
         solver.assert(&lexpr._eq(&rexpr).not());
-        match solver.check() {
+        let result = match solver.check() {
             z3::SatResult::Unsat => ValidationResult::Valid,
             z3::SatResult::Unknown => ValidationResult::Unknown,
             z3::SatResult::Sat => ValidationResult::Invalid,
+        };
+        if let ValidationResult::Valid = result {
+            Some(Rule {
+                condition: None,
+                lhs: lhs.clone(),
+                rhs: rhs.clone(),
+            })
+        } else {
+            None
         }
     }
 

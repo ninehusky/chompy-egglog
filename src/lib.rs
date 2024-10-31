@@ -213,15 +213,26 @@ pub trait Chomper {
                                 )
                                 .is_err()
                             {
-                                if let ValidationResult::Valid = self.validate_rule(&generalized) {
-                                    if generalized.lhs.to_string() == "?a" {
-                                        continue;
-                                    }
-                                    println!("rule: {} ~> {}", generalized.lhs, generalized.rhs);
-                                    self.add_rewrite(
+                                let validated = self.get_validated_rule(&generalized);
+                                if validated.is_none() {
+                                    continue;
+                                }
+                                let validated = validated.unwrap();
+                                if validated.condition.is_none() {
+                                    println!("Rule: {} -> {}", validated.lhs, validated.rhs);
+                                    self.add_rewrite(egraph, validated.lhs, validated.rhs);
+                                } else {
+                                    println!(
+                                        "Conditional Rule: if {} then {} -> {}",
+                                        validated.condition.clone().unwrap(),
+                                        validated.lhs,
+                                        validated.rhs
+                                    );
+                                    self.add_conditional_rewrite(
                                         egraph,
-                                        generalized.lhs.clone(),
-                                        generalized.rhs.clone(),
+                                        validated.condition.unwrap(),
+                                        validated.lhs,
+                                        validated.rhs,
                                     );
                                 }
                             }
@@ -440,26 +451,26 @@ pub trait Chomper {
     fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
-        let _pred = self.make_string_not_bad(cond.to_string().as_str());
-        let term1 = self.make_string_not_bad(lhs.to_string().as_str());
-        let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        info!(
-            "adding conditional rewrite: {} -> {} if {}",
-            term1, term2, _pred
-        );
-        info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
-        egraph
-            .parse_and_run_program(
-                None,
-                format!(
-                    r#"
-                    (cond-equal {term1} {term2})
-                    (cond-equal {term2} {term1})
-            "#
-                )
-                .as_str(),
-            )
-            .unwrap();
+        // let _pred = self.make_string_not_bad(cond.to_string().as_str());
+        // let term1 = self.make_string_not_bad(lhs.to_string().as_str());
+        // let term2 = self.make_string_not_bad(rhs.to_string().as_str());
+        // info!(
+        //     "adding conditional rewrite: {} -> {} if {}",
+        //     term1, term2, _pred
+        // );
+        // info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
+        // egraph
+        //     .parse_and_run_program(
+        //         None,
+        //         format!(
+        //             r#"
+        //             (cond-equal {term1} {term2})
+        //             (cond-equal {term2} {term1})
+        //     "#
+        //         )
+        //         .as_str(),
+        //     )
+        //     .unwrap();
     }
 
     fn has_var(&self, term: &Sexp) -> bool {
@@ -480,7 +491,7 @@ pub trait Chomper {
     fn atoms(&self) -> Workload;
     fn make_preds(&self) -> Workload;
     fn get_env(&self) -> &HashMap<String, Vec<Value<Self>>>;
-    fn validate_rule(&self, rule: &Rule) -> ValidationResult;
+    fn get_validated_rule(&self, rule: &Rule) -> Option<Rule>;
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
     fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
     fn constant_pattern(&self) -> Pattern;

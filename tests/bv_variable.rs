@@ -9,6 +9,8 @@ use ruler::{
 use std::str::FromStr;
 use z3::ast::Ast;
 
+use serde::{Deserialize, Serialize};
+
 use chompy::utils::TERM_PLACEHOLDER;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
@@ -80,7 +82,7 @@ impl Chomper for BitvectorChomper {
         &self.value_env
     }
 
-    fn validate_rule(&self, rule: &chompy::Rule) -> ValidationResult {
+    fn get_validated_rule(&self, rule: &chompy::Rule) -> Option<Rule> {
         let widths: HashSet<String> = self
             .get_widths(&rule.lhs)
             .union(&self.get_widths(&rule.rhs))
@@ -94,7 +96,7 @@ impl Chomper for BitvectorChomper {
             //
             let mut storage = vec![];
 
-            for width in widths {
+            for width in &widths {
                 storage.push(
                     vec![width]
                         .into_iter()
@@ -121,7 +123,7 @@ impl Chomper for BitvectorChomper {
                 .map(|tuple| {
                     let mut env = HashMap::default();
                     for (width, value) in tuple {
-                        env.insert(width, value);
+                        env.insert(width.clone(), value);
                     }
                     env
                 })
@@ -131,7 +133,7 @@ impl Chomper for BitvectorChomper {
         let envs = create_envs();
         let mut validation_results: Vec<ValidationResult> = vec![];
 
-        for env in envs {
+        for env in &envs[..] {
             let concrete = Self::concretize_rule(rule, &env);
             let lhs = &concrete.lhs;
             let rhs = &concrete.rhs;
@@ -149,19 +151,96 @@ impl Chomper for BitvectorChomper {
             });
         }
 
-        for result in &validation_results {
-            if let ValidationResult::Invalid = result {
-                return ValidationResult::Invalid;
+        #[derive(Serialize, Deserialize)]
+        struct Results {
+            bitwidths: HashSet<String>,
+            good_envs: Vec<HashMap<String, usize>>,
+            bad_envs: Vec<HashMap<String, usize>>,
+            // TODO: @ninehusky - do we need this?
+            // unknown_envs: Vec<HashMap<String, usize>>,
+        }
+
+        let mut good_envs: Vec<HashMap<String, usize>> = vec![];
+        let mut bad_envs: Vec<HashMap<String, usize>> = vec![];
+
+        assert_eq!(validation_results.len(), envs.len());
+        for (result, env) in validation_results.iter().zip(envs.iter()) {
+            match result {
+                ValidationResult::Valid => good_envs.push(env.clone()),
+                ValidationResult::Invalid => bad_envs.push(env.clone()),
+                ValidationResult::Unknown => {
+                    warn!("unknown validation result for env: {:?}", env);
+                }
             }
         }
-        println!(
-            "validation results for rule {} ~> {}",
-            rule.lhs.to_string(),
-            rule.rhs.to_string(),
-        );
-        println!("{:?}", validation_results);
 
-        ValidationResult::Valid
+        if good_envs.is_empty() {
+            return Some(Rule {
+                condition: None,
+                lhs: rule.lhs.clone(),
+                rhs: rule.rhs.clone(),
+            });
+        }
+
+        if bad_envs.is_empty() {
+            return None;
+        }
+
+        let results = Results {
+            bitwidths: widths.clone(),
+            good_envs,
+            bad_envs,
+        };
+
+        let json_str = serde_json::to_string(&results).unwrap();
+
+        // save that to "my_file.json"
+        // TODO: @ninehusky - use a temp file here rather than re-using the same one each time.
+        std::fs::write("my_file.json", json_str).expect("Unable to write file");
+
+        // now, start the racket process.
+        let proc = std::process::Command::new("racket")
+            .arg("./racket/infer-cond.rkt")
+            .arg("--env-filepath")
+            .arg("my_file.json")
+            .output()
+            .expect("failed to execute process");
+
+        if !proc.status.success() {
+            println!("error: {:?}", proc);
+            return None;
+        }
+
+        let output_string = String::from_utf8_lossy(&proc.stdout).to_string();
+        // this is CRAZY
+        // get the substring from the third '(' character all the way to the second-to-last
+        // character.
+        // find the index of the third '('.
+        let third_paren_index = output_string
+            .as_str()
+            .char_indices()
+            .filter(|(_, c)| *c == '(')
+            .nth(2)
+            .unwrap()
+            .0;
+
+        let mut result_str = output_string[third_paren_index..output_string.len() - 1].to_string();
+        // println!("condition: {}", result_str);
+        for (i, bitwidth) in widths.clone().iter().enumerate() {
+            let letter: char = (b'p' + i as u8) as char;
+            // println!("replacing {} with {}", letter, bitwidth);
+            let replaced = result_str.replace(&format!("{}", letter), &format!("{}", bitwidth));
+            result_str = replaced.clone();
+        }
+        // println!("new condition: {}", result_str);
+
+        let condition = Sexp::from_str(&result_str).unwrap();
+
+        Some(Rule {
+            condition: Some(condition),
+            lhs: rule.lhs.clone(),
+            rhs: rule.rhs.clone(),
+        })
     }
 
     fn make_preds(&self) -> Workload {
