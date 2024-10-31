@@ -71,7 +71,7 @@
        (assert (not (condition1 (hash-ref bad-env (string->symbol (first bitwidths)))))))
 
      (for ([symbolic (symbolics (condition1 (hash-ref (first good-envs) (string->symbol (first bitwidths)))))])
-       (when (integer? symbolic) (assert (not (negative? symbolic))))))))
+       (when (integer? symbolic) (assert (positive? symbolic)))))))
 
 (define (find-2-arg-condition)
   (solve
@@ -84,7 +84,7 @@
                                 (hash-ref bad-env (string->symbol (second bitwidths)))))))
      (for ([symbolic (symbolics (condition2 (hash-ref (first good-envs) (string->symbol (first bitwidths)))
                                             (hash-ref (first good-envs) (string->symbol (second bitwidths)))))])
-       (when (integer? symbolic) (assert (not (negative? symbolic))))))))
+       (when (integer? symbolic) (assert (positive? symbolic)))))))
 
 (define (find-3-arg-condition)
   (synthesize
@@ -101,7 +101,7 @@
                  (for ([symbolic (symbolics (condition3 (hash-ref (first good-envs) (string->symbol (first bitwidths)))
                                                         (hash-ref (first good-envs) (string->symbol (second bitwidths)))
                                                         (hash-ref (first good-envs) (string->symbol (third bitwidths)))))])
-                   (when (integer? symbolic) (assert (not (negative? symbolic))))))))
+                   (when (integer? symbolic) (assert (positive? symbolic)))))))
 
 (print-forms (match (length bitwidths)
                [1 (find-1-arg-condition)]
