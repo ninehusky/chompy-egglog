@@ -1,4 +1,4 @@
-use egglog::EGraph;
+use egglog::{EGraph, SerializeConfig};
 use ruler::enumo::Pattern;
 use ruler::{HashMap, HashSet, ValidationResult};
 use utils::TERM_PLACEHOLDER;
@@ -145,8 +145,6 @@ pub trait Chomper {
                     .unwrap();
                 info!("starting cvec match");
                 let vals = self.cvec_match(egraph, mask_to_preds, memo);
-                info!("found {} non-conditional rules", vals.non_conditional.len());
-                info!("found {} conditional rules", vals.conditional.len());
                 if vals.non_conditional.is_empty()
                     || vals.non_conditional.iter().all(|x| {
                         found_rules.contains(format!("{:?}", self.generalize_rule(x)).as_str())
@@ -222,10 +220,10 @@ pub trait Chomper {
                                 }
                                 let validated = validated.unwrap();
                                 if validated.condition.is_none() {
-                                    println!("Rule: {} -> {}", validated.lhs, validated.rhs);
+                                    info!("Rule: {} -> {}", validated.lhs, validated.rhs);
                                     self.add_rewrite(egraph, validated.lhs, validated.rhs);
                                 } else {
-                                    println!(
+                                    info!(
                                         "Conditional Rule: if {} then {} -> {}",
                                         validated.condition.clone().unwrap(),
                                         validated.lhs,
@@ -327,8 +325,12 @@ pub trait Chomper {
             conditional: vec![],
         };
 
+        info!("hi from cvec match");
+        let serialized = egraph.serialize(SerializeConfig::default());
+        info!("eclasses in egraph: {}", serialized.classes().len());
+        info!("nodes in egraph: {}", serialized.nodes.len());
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
-        info!("eclass term map len: {}", eclass_term_map.len());
+        // info!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];

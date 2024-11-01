@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use chompy::utils::TERM_PLACEHOLDER;
 
+#[path = "./sketches/bv_variable.rs"]
+pub mod bv_variable;
+
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct Bitvector {
     pub width: u64,
@@ -100,20 +103,9 @@ impl Chomper for BitvectorChomper {
                 storage.push(
                     vec![width]
                         .into_iter()
-                        .cartesian_product(1..MAX_BITWIDTH)
+                        .cartesian_product(1..(MAX_BITWIDTH + 1))
                         .collect::<Vec<_>>(),
                 );
-            }
-
-            for val in &storage {
-                // add everything else in storage to some vector. that is, create a vector containing
-                // all elements of storage != val.
-                let mut other_vals = vec![];
-                for other in &storage {
-                    if other != val {
-                        other_vals.push(other);
-                    }
-                }
             }
 
             // now, get the cartesian product of all elements of storage.
@@ -174,7 +166,7 @@ impl Chomper for BitvectorChomper {
             }
         }
 
-        if good_envs.is_empty() {
+        if bad_envs.is_empty() {
             return Some(Rule {
                 condition: None,
                 lhs: rule.lhs.clone(),
@@ -182,7 +174,7 @@ impl Chomper for BitvectorChomper {
             });
         }
 
-        if bad_envs.is_empty() {
+        if good_envs.len() < 2 {
             return None;
         }
 
@@ -430,7 +422,7 @@ fn sexpr_to_z3<'a>(
                         _ => panic!("unknown operator {:?} in term {}", op, expr),
                     };
                     z3::ast::BV::zero_ext(
-                        &z3::ast::BV::extract(&value, width, 0),
+                        &z3::ast::BV::extract(&value, width - 1, 0),
                         ((MAX_BITWIDTH as u32) - width).try_into().unwrap(),
                     )
                 } else {
@@ -687,14 +679,12 @@ mod tests {
             0,
             (MAX_BITWIDTH + 1).try_into().unwrap(),
         );
-        println!("{:?}", width_env);
         let value_env = initialize_value_env(
             &mut rng,
             vec!["a".to_string(), "b".to_string()],
             0,
             (1 << MAX_BITWIDTH) - 1,
         );
-        println!("{:?}", value_env);
 
         // final env should be the combination of these two.
         let final_env = width_env
@@ -718,5 +708,10 @@ mod tests {
             &HashMap::default(),
             &mut HashSet::default(),
         );
+    }
+
+    #[test]
+    fn test_with_sketch() {
+        let sketches = bv_variable::intel_rules();
     }
 }

@@ -103,8 +103,13 @@
                                                         (hash-ref (first good-envs) (string->symbol (third bitwidths)))))])
                    (when (integer? symbolic) (assert (positive? symbolic)))))))
 
-(print-forms (match (length bitwidths)
-               [1 (find-1-arg-condition)]
-               [2 (find-2-arg-condition)]
-               [3 (find-3-arg-condition)]
-               [_ (error "Invalid number of bitwidths.")]))
+(define sol (match (length bitwidths)
+              [1 (find-1-arg-condition)]
+              [2 (find-2-arg-condition)]
+              [3 (find-3-arg-condition)]
+              [_ (error "Invalid number of bitwidths.")]))
+
+(unless (sat? sol)
+  (error "No solution found."))
+
+(print-forms sol)
