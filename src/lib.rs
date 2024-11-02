@@ -1,6 +1,6 @@
 use egglog::{EGraph, SerializeConfig};
 use ruler::enumo::Pattern;
-use ruler::{HashMap, HashSet, ValidationResult};
+use ruler::{HashMap, HashSet};
 use utils::TERM_PLACEHOLDER;
 
 use std::fmt::Debug;
@@ -190,52 +190,50 @@ pub trait Chomper {
 
                 for val in &vals.non_conditional {
                     let generalized = self.generalize_rule(val);
-                    if !found_rules.contains(format!("{:?}", generalized).as_str()) {
-                        if utils::does_rule_have_good_vars(&generalized) {
-                            let lhs =
-                                self.make_string_not_bad(generalized.lhs.to_string().as_str());
-                            let rhs =
-                                self.make_string_not_bad(generalized.rhs.to_string().as_str());
-                            if egraph
-                                .parse_and_run_program(
-                                    None,
-                                    format!(
-                                        r#"
+                    if !found_rules.contains(format!("{:?}", generalized).as_str())
+                        && utils::does_rule_have_good_vars(&generalized)
+                    {
+                        let lhs = self.make_string_not_bad(generalized.lhs.to_string().as_str());
+                        let rhs = self.make_string_not_bad(generalized.rhs.to_string().as_str());
+                        if egraph
+                            .parse_and_run_program(
+                                None,
+                                format!(
+                                    r#"
                                 {lhs}
                                 {rhs}
                                 (check (= {lhs} {rhs}))
                                 "#
-                                    )
-                                    .as_str(),
                                 )
-                                .is_err()
-                            {
-                                let validated = self.get_validated_rule(&generalized);
-                                if found_rules.contains(format!("{:?}", validated).as_str()) {
-                                    continue;
-                                }
-                                found_rules.insert(format!("{:?}", validated));
-                                if validated.is_none() {
-                                    continue;
-                                }
-                                let validated = validated.unwrap();
-                                if validated.condition.is_none() {
-                                    info!("Rule: {} -> {}", validated.lhs, validated.rhs);
-                                    self.add_rewrite(egraph, validated.lhs, validated.rhs);
-                                } else {
-                                    info!(
-                                        "Conditional Rule: if {} then {} -> {}",
-                                        validated.condition.clone().unwrap(),
-                                        validated.lhs,
-                                        validated.rhs
-                                    );
-                                    self.add_conditional_rewrite(
-                                        egraph,
-                                        validated.condition.unwrap(),
-                                        validated.lhs,
-                                        validated.rhs,
-                                    );
-                                }
+                                .as_str(),
+                            )
+                            .is_err()
+                        {
+                            let validated = self.get_validated_rule(&generalized);
+                            if found_rules.contains(format!("{:?}", validated).as_str()) {
+                                continue;
+                            }
+                            found_rules.insert(format!("{:?}", validated));
+                            if validated.is_none() {
+                                continue;
+                            }
+                            let validated = validated.unwrap();
+                            if validated.condition.is_none() {
+                                info!("Rule: {} -> {}", validated.lhs, validated.rhs);
+                                self.add_rewrite(egraph, validated.lhs, validated.rhs);
+                            } else {
+                                info!(
+                                    "Conditional Rule: if {} then {} -> {}",
+                                    validated.condition.clone().unwrap(),
+                                    validated.lhs,
+                                    validated.rhs
+                                );
+                                self.add_conditional_rewrite(
+                                    egraph,
+                                    validated.condition.unwrap(),
+                                    validated.lhs,
+                                    validated.rhs,
+                                );
                             }
                         }
                     }
@@ -453,7 +451,13 @@ pub trait Chomper {
             .unwrap();
     }
 
-    fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
+    fn add_conditional_rewrite(
+        &mut self,
+        _egraph: &mut EGraph,
+        _cond: Sexp,
+        _lhs: Sexp,
+        _rhs: Sexp,
+    ) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
         // let _pred = self.make_string_not_bad(cond.to_string().as_str());
