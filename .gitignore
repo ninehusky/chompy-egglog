@@ -28,6 +28,9 @@ Cargo.lock
 *.svg
 *output.txt
 
+# Don't include environment artifacts
+*.json
+
 diary.md
 
 .z3-trace

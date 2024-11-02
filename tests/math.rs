@@ -82,8 +82,8 @@ impl Chomper for MathLanguage {
             )
     }
 
-    fn validate_rule(&self, _rule: &Rule) -> ValidationResult {
-        ValidationResult::Valid
+    fn get_validated_rule(&self, rule: &Rule) -> Option<Rule> {
+        None
     }
 
     fn interpret_pred(&mut self, term: &Sexp) -> Vec<bool> {

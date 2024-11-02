@@ -1,6 +1,6 @@
-use egglog::EGraph;
+use egglog::{EGraph, SerializeConfig};
 use ruler::enumo::Pattern;
-use ruler::{HashMap, HashSet, ValidationResult};
+use ruler::{HashMap, HashSet};
 use utils::TERM_PLACEHOLDER;
 
 use std::fmt::Debug;
@@ -145,8 +145,6 @@ pub trait Chomper {
                     .unwrap();
                 info!("starting cvec match");
                 let vals = self.cvec_match(egraph, mask_to_preds, memo);
-                info!("found {} non-conditional rules", vals.non_conditional.len());
-                info!("found {} conditional rules", vals.conditional.len());
                 if vals.non_conditional.is_empty()
                     || vals.non_conditional.iter().all(|x| {
                         found_rules.contains(format!("{:?}", self.generalize_rule(x)).as_str())
@@ -192,38 +190,50 @@ pub trait Chomper {
 
                 for val in &vals.non_conditional {
                     let generalized = self.generalize_rule(val);
-                    if !found_rules.contains(format!("{:?}", generalized).as_str()) {
-                        found_rules.insert(format!("{:?}", generalized));
-                        if utils::does_rule_have_good_vars(&generalized) {
-                            let lhs =
-                                self.make_string_not_bad(generalized.lhs.to_string().as_str());
-                            let rhs =
-                                self.make_string_not_bad(generalized.rhs.to_string().as_str());
-                            if egraph
-                                .parse_and_run_program(
-                                    None,
-                                    format!(
-                                        r#"
+                    if !found_rules.contains(format!("{:?}", generalized).as_str())
+                        && utils::does_rule_have_good_vars(&generalized)
+                    {
+                        let lhs = self.make_string_not_bad(generalized.lhs.to_string().as_str());
+                        let rhs = self.make_string_not_bad(generalized.rhs.to_string().as_str());
+                        if egraph
+                            .parse_and_run_program(
+                                None,
+                                format!(
+                                    r#"
                                 {lhs}
                                 {rhs}
                                 (check (= {lhs} {rhs}))
                                 "#
-                                    )
-                                    .as_str(),
                                 )
-                                .is_err()
-                            {
-                                if let ValidationResult::Valid = self.validate_rule(&generalized) {
-                                    if generalized.lhs.to_string() == "?a" {
-                                        continue;
-                                    }
-                                    println!("rule: {} ~> {}", generalized.lhs, generalized.rhs);
-                                    self.add_rewrite(
-                                        egraph,
-                                        generalized.lhs.clone(),
-                                        generalized.rhs.clone(),
-                                    );
-                                }
+                                .as_str(),
+                            )
+                            .is_err()
+                        {
+                            let validated = self.get_validated_rule(&generalized);
+                            if found_rules.contains(format!("{:?}", validated).as_str()) {
+                                continue;
+                            }
+                            found_rules.insert(format!("{:?}", validated));
+                            if validated.is_none() {
+                                continue;
+                            }
+                            let validated = validated.unwrap();
+                            if validated.condition.is_none() {
+                                info!("Rule: {} -> {}", validated.lhs, validated.rhs);
+                                self.add_rewrite(egraph, validated.lhs, validated.rhs);
+                            } else {
+                                info!(
+                                    "Conditional Rule: if {} then {} -> {}",
+                                    validated.condition.clone().unwrap(),
+                                    validated.lhs,
+                                    validated.rhs
+                                );
+                                self.add_conditional_rewrite(
+                                    egraph,
+                                    validated.condition.unwrap(),
+                                    validated.lhs,
+                                    validated.rhs,
+                                );
                             }
                         }
                     }
@@ -313,8 +323,12 @@ pub trait Chomper {
             conditional: vec![],
         };
 
+        info!("hi from cvec match");
+        let serialized = egraph.serialize(SerializeConfig::default());
+        info!("eclasses in egraph: {}", serialized.classes().len());
+        info!("nodes in egraph: {}", serialized.nodes.len());
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
-        info!("eclass term map len: {}", eclass_term_map.len());
+        // info!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
@@ -437,29 +451,35 @@ pub trait Chomper {
             .unwrap();
     }
 
-    fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
+    fn add_conditional_rewrite(
+        &mut self,
+        _egraph: &mut EGraph,
+        _cond: Sexp,
+        _lhs: Sexp,
+        _rhs: Sexp,
+    ) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
-        let _pred = self.make_string_not_bad(cond.to_string().as_str());
-        let term1 = self.make_string_not_bad(lhs.to_string().as_str());
-        let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        info!(
-            "adding conditional rewrite: {} -> {} if {}",
-            term1, term2, _pred
-        );
-        info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
-        egraph
-            .parse_and_run_program(
-                None,
-                format!(
-                    r#"
-                    (cond-equal {term1} {term2})
-                    (cond-equal {term2} {term1})
-            "#
-                )
-                .as_str(),
-            )
-            .unwrap();
+        // let _pred = self.make_string_not_bad(cond.to_string().as_str());
+        // let term1 = self.make_string_not_bad(lhs.to_string().as_str());
+        // let term2 = self.make_string_not_bad(rhs.to_string().as_str());
+        // info!(
+        //     "adding conditional rewrite: {} -> {} if {}",
+        //     term1, term2, _pred
+        // );
+        // info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
+        // egraph
+        //     .parse_and_run_program(
+        //         None,
+        //         format!(
+        //             r#"
+        //             (cond-equal {term1} {term2})
+        //             (cond-equal {term2} {term1})
+        //     "#
+        //         )
+        //         .as_str(),
+        //     )
+        //     .unwrap();
     }
 
     fn has_var(&self, term: &Sexp) -> bool {
@@ -480,7 +500,7 @@ pub trait Chomper {
     fn atoms(&self) -> Workload;
     fn make_preds(&self) -> Workload;
     fn get_env(&self) -> &HashMap<String, Vec<Value<Self>>>;
-    fn validate_rule(&self, rule: &Rule) -> ValidationResult;
+    fn get_validated_rule(&self, rule: &Rule) -> Option<Rule>;
     fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
     fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
     fn constant_pattern(&self) -> Pattern;
