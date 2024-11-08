@@ -323,12 +323,12 @@ pub trait Chomper {
             conditional: vec![],
         };
 
-        info!("hi from cvec match");
+        println!("hi from cvec match");
         let serialized = egraph.serialize(SerializeConfig::default());
-        info!("eclasses in egraph: {}", serialized.classes().len());
-        info!("nodes in egraph: {}", serialized.nodes.len());
+        println!("eclasses in egraph: {}", serialized.classes().len());
+        println!("nodes in egraph: {}", serialized.nodes.len());
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
-        // info!("eclass term map len: {}", eclass_term_map.len());
+        // println!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
@@ -371,12 +371,10 @@ pub trait Chomper {
                         .is_ok()
                     {
                         // TODO: we're going to ignore multiple conditionals for now, there are too many.
-                        info!("skipping");
                         continue;
                     }
 
                     let mut has_meaningful_diff = false;
-                    let mut matching_count = 0;
                     let mut same_vals: Vec<bool> = vec![];
 
                     for (cvec_1_el, cvec_2_el) in cvec1.iter().zip(cvec2.iter()) {
@@ -385,17 +383,10 @@ pub trait Chomper {
                             has_meaningful_diff = true;
                         }
                         same_vals.push(has_match);
-                        if has_match {
-                            matching_count += 1;
-                        }
                     }
 
                     if !has_meaningful_diff {
-                        continue;
-                    }
-
-                    // filter out bad predicates that only match on one value
-                    if matching_count == 1 {
+                        println!("no meaningful diff");
                         continue;
                     }
 
@@ -463,11 +454,11 @@ pub trait Chomper {
         // let _pred = self.make_string_not_bad(cond.to_string().as_str());
         // let term1 = self.make_string_not_bad(lhs.to_string().as_str());
         // let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        // info!(
+        // println!(
         //     "adding conditional rewrite: {} -> {} if {}",
         //     term1, term2, _pred
         // );
-        // info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
+        // println!("term2 has cvec: {:?}", self.interpret_term(&rhs));
         // egraph
         //     .parse_and_run_program(
         //         None,
