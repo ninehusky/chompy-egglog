@@ -7,10 +7,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
+use log::info;
 use ruler::enumo::{Sexp, Workload};
 
-use log::info;
-
+pub mod condition;
 pub mod utils;
 
 pub type Constant<R> = <R as Chomper>::Constant;
