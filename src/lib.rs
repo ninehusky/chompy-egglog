@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
-use ruler::enumo::{Filter, Metric, Sexp, Workload};
+use ruler::enumo::{Sexp, Workload};
 
 use log::info;
 
@@ -69,14 +69,14 @@ pub trait Chomper {
         let mut max_eclass_id = 0;
 
         for current_size in 0..MAX_SIZE {
-            println!("adding programs of size {}:", current_size);
+            info!("adding programs of size {}:", current_size);
 
             // let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
             // if current_size > 4 {
             //     filter = Filter::And(vec![filter, Filter::Excludes(self.constant_pattern())]);
             // }
 
-            println!("finding eclass term map...");
+            info!("finding eclass term map...");
             let eclass_term_map = self
                 .reset_eclass_term_map(egraph)
                 .values()
@@ -97,14 +97,14 @@ pub trait Chomper {
                     .plug(TERM_PLACEHOLDER, &term_workload)
             };
 
-            println!("new workload len: {}", new_workload.force().len());
+            info!("new workload len: {}", new_workload.force().len());
 
             let atoms = self.atoms().force();
 
             let memo = &mut HashSet::default();
 
             for term in &new_workload.force() {
-                // println!("term: {}", term);
+                // info!("term: {}", term);
                 let term_string = self.make_string_not_bad(term.to_string().as_str());
                 if !atoms.contains(term) && !self.has_var(term) {
                     continue;
@@ -134,15 +134,15 @@ pub trait Chomper {
                     "#,
                     )
                     .unwrap();
-                println!("starting cvec match");
+                info!("starting cvec match");
                 let vals = self.cvec_match(egraph, memo);
 
                 if vals.non_conditional.is_empty() && vals.conditional.is_empty() {
                     break;
                 }
 
-                println!("found {} non-conditional rules", vals.non_conditional.len());
-                println!("found {} conditional rules", vals.conditional.len());
+                info!("found {} non-conditional rules", vals.non_conditional.len());
+                info!("found {} conditional rules", vals.conditional.len());
                 for val in &vals.conditional {
                     let generalized = self.generalize_rule(val);
                     if let ValidationResult::Valid = self.validate_rule(&generalized) {
@@ -153,7 +153,7 @@ pub trait Chomper {
                                 self.make_string_not_bad(generalized.rhs.to_string().as_str());
                             let cond = generalized.condition.as_ref().unwrap();
                             let pred = self.make_string_not_bad(cond.to_string().as_str());
-                            println!("Conditional rule: if {} then {} ~> {}", pred, lhs, rhs);
+                            info!("Conditional rule: if {} then {} ~> {}", pred, lhs, rhs);
                             self.add_conditional_rewrite(
                                 egraph,
                                 Sexp::from_str(&pred).unwrap(),
@@ -190,7 +190,7 @@ pub trait Chomper {
                             // TODO: derivability check here
                         }
                     } else {
-                        // println!(
+                        // info!(
                         //     "perfect cvec match but failed validation: {} ~> {}",
                         //     val.lhs, val.rhs
                         // );
@@ -227,10 +227,12 @@ pub trait Chomper {
         let mut id_to_gen_id: HashMap<String, String> = HashMap::default();
         let new_lhs = self.generalize_sexp(rule.lhs.clone(), &mut id_to_gen_id);
         let new_rhs = self.generalize_sexp(rule.rhs.clone(), &mut id_to_gen_id);
-        let condition = match &rule.condition {
-            Some(cond) => Some(self.generalize_sexp(cond.clone(), &mut id_to_gen_id)),
-            None => None,
-        };
+
+        let condition = rule
+            .condition
+            .as_ref()
+            .map(|cond| self.generalize_sexp(cond.clone(), &mut id_to_gen_id));
+
         Rule {
             // TODO: later
             condition,
@@ -277,12 +279,12 @@ pub trait Chomper {
 
         let mask_to_preds = self.make_mask_to_preds();
 
-        println!("hi from cvec match");
+        info!("hi from cvec match");
         let serialized = egraph.serialize(SerializeConfig::default());
-        println!("eclasses in egraph: {}", serialized.classes().len());
-        println!("nodes in egraph: {}", serialized.nodes.len());
+        info!("eclasses in egraph: {}", serialized.classes().len());
+        info!("nodes in egraph: {}", serialized.nodes.len());
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
-        println!("eclass term map len: {}", eclass_term_map.len());
+        info!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
@@ -335,7 +337,7 @@ pub trait Chomper {
                     }
 
                     if !has_meaningful_diff {
-                        println!("no meaningful diff");
+                        info!("no meaningful diff");
                         continue;
                     }
 
@@ -369,7 +371,7 @@ pub trait Chomper {
         if term1 == "?a" {
             return;
         }
-        println!("Rule: {} ~> {}", term1, term2);
+        info!("Rule: {} ~> {}", term1, term2);
         egraph
             .parse_and_run_program(
                 None,
@@ -398,11 +400,11 @@ pub trait Chomper {
         // let _pred = self.make_string_not_bad(cond.to_string().as_str());
         // let term1 = self.make_string_not_bad(lhs.to_string().as_str());
         // let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        // println!(
+        // info!(
         //     "adding conditional rewrite: {} -> {} if {}",
         //     term1, term2, _pred
         // );
-        // println!("term2 has cvec: {:?}", self.interpret_term(&rhs));
+        // info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
         // egraph
         //     .parse_and_run_program(
         //         None,
