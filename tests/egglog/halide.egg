@@ -1,0 +1,38 @@
+;;; Halide language definition.
+
+(datatype Expr
+   (Lit i64)
+   (Var String)
+   (Lt Expr Expr)
+   (Leq Expr Expr)
+   (Eq Expr Expr)
+   (Neq Expr Expr)
+   (Implies Expr Expr)
+   (Not Expr)
+   (Neg Expr)
+   (And Expr Expr)
+   (Or Expr Expr)
+   (Xor Expr Expr)
+   (Add Expr Expr)
+   (Sub Expr Expr)
+   (Mul Expr Expr)
+   (Div Expr Expr)
+   (Min Expr Expr)
+   (Max Expr Expr)
+   (Select Expr Expr Expr)
+)
+
+
+(function eclass (Expr) i64 :merge (min old new))
+
+(ruleset eclass-report)
+(ruleset non-cond-rewrites)
+(ruleset cond-rewrites)
+
+(rule
+  ((eclass ?bvterm))
+  ((extract "eclass:")
+   (extract (eclass ?bvterm))
+   (extract "candidate term:")
+   (extract ?bvterm))
+   :ruleset eclass-report)
