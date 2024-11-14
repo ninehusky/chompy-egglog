@@ -1,7 +1,7 @@
 use egglog::{EGraph, SerializeConfig};
 use ruler::enumo::Pattern;
 use ruler::{HashMap, HashSet, ValidationResult};
-use utils::TERM_PLACEHOLDER;
+use utils::{TERM_PLACEHOLDER, UNIVERSAL_RELATION};
 
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -10,7 +10,7 @@ use std::str::FromStr;
 use log::info;
 use ruler::enumo::{Sexp, Workload};
 
-pub mod condition;
+pub mod ite;
 pub mod utils;
 
 pub type Constant<R> = <R as Chomper>::Constant;
@@ -70,11 +70,6 @@ pub trait Chomper {
 
         for current_size in 0..MAX_SIZE {
             info!("adding programs of size {}:", current_size);
-
-            // let mut filter = Filter::MetricEq(Metric::Atoms, current_size);
-            // if current_size > 4 {
-            //     filter = Filter::And(vec![filter, Filter::Excludes(self.constant_pattern())]);
-            // }
 
             info!("finding eclass term map...");
             let eclass_term_map = self
@@ -388,35 +383,31 @@ pub trait Chomper {
             .unwrap();
     }
 
-    fn add_conditional_rewrite(
-        &mut self,
-        _egraph: &mut EGraph,
-        _cond: Sexp,
-        _lhs: Sexp,
-        _rhs: Sexp,
-    ) {
+    fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
-        // let _pred = self.make_string_not_bad(cond.to_string().as_str());
-        // let term1 = self.make_string_not_bad(lhs.to_string().as_str());
-        // let term2 = self.make_string_not_bad(rhs.to_string().as_str());
-        // info!(
-        //     "adding conditional rewrite: {} -> {} if {}",
-        //     term1, term2, _pred
-        // );
-        // info!("term2 has cvec: {:?}", self.interpret_term(&rhs));
-        // egraph
-        //     .parse_and_run_program(
-        //         None,
-        //         format!(
-        //             r#"
-        //             (cond-equal {term1} {term2})
-        //             (cond-equal {term2} {term1})
-        //     "#
-        //         )
-        //         .as_str(),
-        //     )
-        //     .unwrap();
+        let cond = self.make_string_not_bad(cond.to_string().as_str());
+        let term1 = self.make_string_not_bad(lhs.to_string().as_str());
+        let term2 = self.make_string_not_bad(rhs.to_string().as_str());
+
+        info!(
+            "adding conditional rewrite: if {} then {} -> {}",
+            cond, term1, term2
+        );
+
+        let cond_rewrite_prog = format!(
+            r#"
+            (rule
+                (({UNIVERSAL_RELATION} {term1}))
+                ((union {term1} (ite {cond} {term2} {term1}))))
+        "#
+        );
+
+        println!("cond rewrite prog: {}", cond_rewrite_prog);
+
+        egraph
+            .parse_and_run_program(None, &cond_rewrite_prog)
+            .unwrap();
     }
 
     fn has_var(&self, term: &Sexp) -> bool {
@@ -433,13 +424,14 @@ pub trait Chomper {
         }
     }
 
+    fn language_name() -> String;
     fn productions(&self) -> Workload;
     fn atoms(&self) -> Workload;
     fn make_preds(&self) -> Workload;
     fn get_env(&self) -> &HashMap<String, CVec<Self>>;
     fn validate_rule(&self, rule: &Rule) -> ValidationResult;
-    fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> CVec<Self>;
-    fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool>;
+    fn interpret_term(&self, term: &ruler::enumo::Sexp) -> CVec<Self>;
+    fn interpret_pred(&self, term: &ruler::enumo::Sexp) -> Vec<bool>;
     fn constant_pattern(&self) -> Pattern;
     fn matches_var_pattern(&self, term: &Sexp) -> bool;
 }
