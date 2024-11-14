@@ -5,8 +5,6 @@ use ruler::{
     HashMap, ValidationResult,
 };
 
-use std::str::FromStr;
-
 use z3::ast::Ast;
 
 use chompy::utils::TERM_PLACEHOLDER;

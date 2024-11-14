@@ -1,11 +1,13 @@
 use std::{str::FromStr, sync::Arc};
 
+use log::info;
+
 use std::fmt::Debug;
 
 use egglog::{
     ast::{Span, Symbol},
     constraint::{SimpleTypeConstraint, TypeConstraint},
-    sort::{BoolSort, Sort},
+    sort::Sort,
     ArcSort, PrimitiveLike,
 };
 use ruler::enumo::Sexp;
@@ -59,7 +61,7 @@ pub struct Ite {
 // will evaluate to first expr if pred_expr = true (according to interpreter semantics), else the other expr.
 impl PrimitiveLike for Ite {
     fn name(&self) -> Symbol {
-        self.name.clone()
+        self.name
     }
 
     fn get_type_constraints(&self, span: &Span) -> Box<dyn TypeConstraint> {
@@ -84,20 +86,21 @@ impl PrimitiveLike for Ite {
         let egraph = egraph.unwrap();
         let sexp = Sexp::from_str(&egraph.extract_value_to_string(values[0])).unwrap();
 
-        println!("apply on {}", sexp);
+        info!("apply on {}", sexp);
 
         if self.interpreter.interp_cond(&sexp) {
-            Some(values[1].clone())
+            Some(values[1])
         } else {
-            Some(values[2].clone())
+            Some(values[2])
         }
     }
 }
 
+// idk why clippy complains about the two use statements below.
+#[allow(unused_imports)]
 pub mod tests {
-    use egglog::{sort::EqSort, SerializeConfig};
-
     use super::*;
+    use egglog::sort::EqSort;
 
     #[test]
     fn test_ite_create() {
