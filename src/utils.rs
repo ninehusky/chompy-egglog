@@ -4,6 +4,7 @@ use ruler::enumo::Sexp;
 // Atoms with this name will `not` count in a production
 // toward its size.
 pub const TERM_PLACEHOLDER: &str = "?term";
+pub const UNIVERSAL_RELATION: &str = "universe";
 
 pub fn get_production_size(term: &Sexp) -> usize {
     get_size(term, true)
