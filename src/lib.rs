@@ -68,6 +68,11 @@ pub trait Chomper {
     fn run_chompy(&mut self, egraph: &mut EGraph) {
         let mut max_eclass_id = 0;
 
+        let empty_egraph = egraph.clone();
+
+        let mut non_conditional_rules: Vec<Rule> = vec![];
+        let mut conditional_rules: Vec<Rule> = vec![];
+
         for current_size in 0..MAX_SIZE {
             info!("adding programs of size {}:", current_size);
 
@@ -142,19 +147,14 @@ pub trait Chomper {
                     let generalized = self.generalize_rule(val);
                     if let ValidationResult::Valid = self.validate_rule(&generalized) {
                         if utils::does_rule_have_good_vars(&generalized) {
-                            let lhs =
-                                self.make_string_not_bad(generalized.lhs.to_string().as_str());
-                            let rhs =
-                                self.make_string_not_bad(generalized.rhs.to_string().as_str());
-                            let cond = generalized.condition.as_ref().unwrap();
-                            let pred = self.make_string_not_bad(cond.to_string().as_str());
-                            info!("Conditional rule: if {} then {} ~> {}", pred, lhs, rhs);
-                            self.add_conditional_rewrite(
-                                egraph,
-                                Sexp::from_str(&pred).unwrap(),
-                                Sexp::from_str(&lhs).unwrap(),
-                                Sexp::from_str(&rhs).unwrap(),
+                            info!(
+                                "Conditional rule: if {} then {} ~> {}",
+                                generalized.condition.clone().unwrap(),
+                                generalized.lhs,
+                                generalized.rhs
                             );
+
+                            self.add_conditional_rewrite(egraph, &generalized);
                         }
                     }
                 }
@@ -177,11 +177,7 @@ pub trait Chomper {
                                 continue;
                             }
 
-                            self.add_rewrite(
-                                egraph,
-                                Sexp::from_str(&lhs).unwrap(),
-                                Sexp::from_str(&rhs).unwrap(),
-                            );
+                            self.add_rewrite(egraph, &generalized);
                             // TODO: derivability check here
                         }
                     } else {
@@ -275,9 +271,6 @@ pub trait Chomper {
         let mask_to_preds = self.make_mask_to_preds();
 
         info!("hi from cvec match");
-        let serialized = egraph.serialize(SerializeConfig::default());
-        info!("eclasses in egraph: {}", serialized.classes().len());
-        info!("nodes in egraph: {}", serialized.nodes.len());
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
         info!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();
@@ -360,9 +353,11 @@ pub trait Chomper {
         result
     }
 
-    fn add_rewrite(&mut self, egraph: &mut EGraph, lhs: Sexp, rhs: Sexp) {
-        let term1 = self.make_string_not_bad(lhs.to_string().as_str());
-        let term2 = self.make_string_not_bad(rhs.to_string().as_str());
+    fn add_rewrite(&mut self, egraph: &mut EGraph, rule: &Rule) {
+        let term1 = self.make_string_not_bad(rule.lhs.to_string().as_str());
+        let term2 = self.make_string_not_bad(rule.rhs.to_string().as_str());
+        // TODO: deal with rewrites which are essentially "anything matches this". they are not
+        // good.
         if term1 == "?a" {
             return;
         }
@@ -383,12 +378,12 @@ pub trait Chomper {
             .unwrap();
     }
 
-    fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, cond: Sexp, lhs: Sexp, rhs: Sexp) {
+    fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, rule: &Rule) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
-        let cond = self.make_string_not_bad(cond.to_string().as_str());
-        let term1 = self.make_string_not_bad(lhs.to_string().as_str());
-        let term2 = self.make_string_not_bad(rhs.to_string().as_str());
+        let cond = rule.condition.as_ref().unwrap().to_string();
+        let term1 = rule.lhs.to_string();
+        let term2 = rule.rhs.to_string();
 
         info!(
             "adding conditional rewrite: if {} then {} -> {}",
@@ -399,7 +394,8 @@ pub trait Chomper {
             r#"
             (rule
                 (({UNIVERSAL_RELATION} {term1}))
-                ((union {term1} (ite {cond} {term2} {term1}))))
+                ((union {term1} (ite {cond} {term2} {term1})))
+                :ruleset cond-rewrites)
         "#
         );
 
