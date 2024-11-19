@@ -86,7 +86,7 @@ impl PrimitiveLike for Ite {
         let egraph = egraph.unwrap();
         let sexp = Sexp::from_str(&egraph.extract_value_to_string(values[0])).unwrap();
 
-        info!("apply on {}", sexp);
+        // println!("apply on {}", sexp);
 
         if self.interpreter.interp_cond(&sexp) {
             Some(values[1])
@@ -198,5 +198,218 @@ pub mod tests {
         egraph
             .parse_and_run_program(None, "(fail (check (= (Mul (Num 2) (Num 2)) (Num 2))))")
             .unwrap();
+    }
+
+    #[test]
+    fn test_ite_non_conditional_derivability() {
+        #[derive(Debug)]
+        struct BoolInterpreter;
+
+        impl PredicateInterpreter for BoolInterpreter {
+            fn interp_cond(&self, sexp: &Sexp) -> bool {
+                fn interp_internal(sexp: &Sexp) -> bool {
+                    match sexp {
+                        Sexp::Atom(atom) => panic!("Unexpected atom: {}", atom),
+                        Sexp::List(l) => {
+                            if let Sexp::Atom(op) = &l[0] {
+                                match op.as_str() {
+                                    "Bool" => {
+                                        if let Sexp::Atom(b) = &l[1] {
+                                            b == "true"
+                                        } else {
+                                            panic!("Unexpected atom: {:?}", l[1]);
+                                        }
+                                    }
+                                    "And" => interp_internal(&l[1]) && interp_internal(&l[2]),
+                                    "Or" => interp_internal(&l[1]) || interp_internal(&l[2]),
+                                    "Not" => !interp_internal(&l[1]),
+                                    _ => panic!("Unexpected operator: {:?}", op),
+                                }
+                            } else {
+                                panic!("Unexpected list operator: {:?}", l[0]);
+                            }
+                        }
+                    }
+                }
+                interp_internal(sexp)
+            }
+        }
+
+        let bool_sort = Arc::new(EqSort {
+            name: "BoolExpr".into(),
+        });
+        let dummy_sort = Arc::new(DummySort {
+            sort: bool_sort.clone(),
+            interpreter: Arc::new(BoolInterpreter),
+        });
+
+        let mut egraph = egglog::EGraph::default();
+
+        egraph.add_arcsort(bool_sort.clone()).unwrap();
+        egraph.add_arcsort(dummy_sort).unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (function Bool (String) BoolExpr)
+                (function And (BoolExpr BoolExpr) BoolExpr)
+                (function Or (BoolExpr BoolExpr) BoolExpr)
+                (function Not (BoolExpr) BoolExpr)
+
+                (relation universe (BoolExpr))
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (rule
+                    ((universe (And ?a (Bool "false"))))
+                    (
+                        (let temp (ite (Bool "true") (Bool "false") (Bool "false")))
+                        (universe temp)
+                        (union (And ?a (Bool "false")) temp)
+                    )
+                )
+
+                (rule
+                    ((universe (And ?a ?b)))
+                    (
+                        (let temp (ite (Bool "true") (And ?b ?a) (And ?b ?a)))
+                        (universe temp)
+                        (union (And ?a ?b) temp)
+                    )
+                )
+
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (universe (And (Bool "false") (Bool "true")))
+            "#,
+            )
+            .unwrap();
+
+        egraph.parse_and_run_program(None, "(run 1000)").unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                "(check (= (And (Bool \"false\") (Bool \"true\")) (Bool \"false\")))",
+            )
+            .unwrap();
+    }
+    #[test]
+    fn test_ite_conditional_derivability() {
+        #[derive(Debug)]
+        struct MathInterpreter;
+
+        impl PredicateInterpreter for MathInterpreter {
+            fn interp_cond(&self, sexp: &Sexp) -> bool {
+                fn interp_internal(sexp: &Sexp) -> i64 {
+                    match sexp {
+                        Sexp::Atom(atom) => panic!("Unexpected atom: {}", atom),
+                        Sexp::List(l) => {
+                            if let Sexp::Atom(op) = &l[0] {
+                                match op.as_str() {
+                                    "Eq" => {
+                                        let a = interp_internal(&l[1]);
+                                        let b = interp_internal(&l[2]);
+                                        if a == b {
+                                            1
+                                        } else {
+                                            0
+                                        }
+                                    }
+                                    "Ge" => {
+                                        let a = interp_internal(&l[1]);
+                                        let b = interp_internal(&l[2]);
+                                        if a >= b {
+                                            1
+                                        } else {
+                                            0
+                                        }
+                                    }
+                                    "Abs" => interp_internal(&l[1]).abs(),
+                                    "Mul" => interp_internal(&l[1]) * interp_internal(&l[2]),
+                                    "Num" => l[1].to_string().parse().unwrap(),
+                                    _ => panic!("Unexpected operator: {:?}", op),
+                                }
+                            } else {
+                                panic!("Unexpected list operator: {:?}", l[0]);
+                            }
+                        }
+                    }
+                }
+
+                interp_internal(sexp) == 1
+            }
+        }
+
+        let math_sort = Arc::new(EqSort {
+            name: "Math".into(),
+        });
+        let dummy_sort = Arc::new(DummySort {
+            sort: math_sort.clone(),
+            interpreter: Arc::new(MathInterpreter),
+        });
+
+        let mut egraph = egglog::EGraph::default();
+
+        egraph.add_arcsort(math_sort.clone()).unwrap();
+        egraph.add_arcsort(dummy_sort).unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (function Num (i64) Math)
+                (function Mul (Math Math) Math)
+                (function Eq (Math Math) Math)
+                (function Ge (Math Math) Math)
+                (function Abs (Math) Math)
+
+                (relation universe (Math))
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (rule
+                    ((universe ?e))
+                    (
+                        (let temp (ite (Ge ?e (Num -1)) (Abs ?e) ?e))
+                        (universe temp)
+                        (union ?e temp)
+                    )
+                )
+
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (universe (Mul (Num 1) (Num 1)))
+            "#,
+            )
+            .unwrap();
+
+        egraph.parse_and_run_program(None, "(run 1000)").unwrap();
+
+        let serialized = egraph.serialize(egglog::SerializeConfig::default());
+        serialized.to_svg_file("ite.svg").unwrap();
     }
 }

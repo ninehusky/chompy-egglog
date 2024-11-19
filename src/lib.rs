@@ -20,7 +20,8 @@ pub type Value<R> = <R as Chomper>::Value;
 
 #[derive(Debug, PartialEq)]
 pub struct Rule {
-    pub condition: Option<Sexp>,
+    // (condition, vector of environments under which subst_var(lhs, env) satisfies the condition)
+    pub condition: Option<(Sexp, Vec<HashMap<String, Sexp>>)>,
     pub lhs: Sexp,
     pub rhs: Sexp,
 }
@@ -30,13 +31,8 @@ pub struct Rules {
     pub conditional: Vec<Rule>,
 }
 
-#[derive(Debug)]
-pub enum Derivability {
-    Derivable,
-    NotDerivable,
-}
-
 pub const MAX_SIZE: usize = 30;
+pub const EXAMPLE_COUNT: usize = 5;
 
 #[macro_export]
 macro_rules! init_egraph {
@@ -181,30 +177,40 @@ pub trait Chomper {
 
                 println!("found {} non-conditional rules", vals.non_conditional.len());
                 println!("found {} conditional rules", vals.conditional.len());
-                // for val in &vals.conditional {
-                //     let generalized = self.generalize_rule(val);
-                //     if let ValidationResult::Valid = self.validate_rule(&generalized) {
-                //         if utils::does_rule_have_good_vars(&generalized) {
-                //             println!(
-                //                 "Conditional rule: if {} then {} ~> {}",
-                //                 generalized.condition.clone().unwrap(),
-                //                 generalized.lhs,
-                //                 generalized.rhs
-                //             );
 
-                //             if found_rules.contains(&generalized) {
-                //                 continue;
-                //             }
-                //             let rule = Rule {
-                //                 condition: generalized.condition.clone(),
-                //                 lhs: generalized.lhs.clone(),
-                //                 rhs: generalized.rhs.clone(),
-                //             };
-                //             found_rules.push(rule);
-                //             self.add_conditional_rewrite(egraph, &generalized);
-                //         }
-                //     }
-                // }
+                for val in &vals.conditional {
+                    let generalized = self.generalize_rule(val);
+                    if let ValidationResult::Valid = self.validate_rule(&generalized) {
+                        if utils::does_rule_have_good_vars(&generalized) {
+                            if found_rules.contains(&generalized) {
+                                continue;
+                            }
+                            let rule = Rule {
+                                condition: generalized.condition.clone(),
+                                lhs: generalized.lhs.clone(),
+                                rhs: generalized.rhs.clone(),
+                            };
+                            if !self.check_derivability(&initial_egraph, &found_rules, &generalized)
+                            {
+                                found_rules.push(rule);
+                                self.add_conditional_rewrite(egraph, &generalized);
+                                println!(
+                                    "Conditional rule: if {} then {} ~> {}",
+                                    generalized.condition.clone().unwrap().0,
+                                    generalized.lhs,
+                                    generalized.rhs
+                                );
+                            } else {
+                                // println!(
+                                //     "Derivability check failed. skipping if {} then {} ~> {}",
+                                //     generalized.condition.clone().unwrap().0,
+                                //     generalized.lhs,
+                                //     generalized.rhs
+                                // );
+                            }
+                        }
+                    }
+                }
 
                 let mut new_rules: Vec<String> = vec![];
                 for val in &vals.non_conditional {
@@ -215,17 +221,6 @@ pub trait Chomper {
                                 self.make_string_not_bad(generalized.lhs.to_string().as_str());
                             let rhs =
                                 self.make_string_not_bad(generalized.rhs.to_string().as_str());
-
-                            // if egraph
-                            //     .parse_and_run_program(
-                            //         None,
-                            //         format!(r#"(check (= {} {}))"#, val.lhs, val.rhs).as_str(),
-                            //     )
-                            //     .is_ok()
-                            // {
-                            //     println!("skipping {} ~> {}", lhs, rhs);
-                            //     continue;
-                            // }
 
                             if found_rules.contains(&generalized) {
                                 continue;
@@ -264,6 +259,30 @@ pub trait Chomper {
     }
 
     fn make_var(&self, var: &str) -> Sexp;
+    fn make_constant(&self, constant: Constant<Self>) -> Sexp;
+    fn get_name_from_var(&self, var: &Sexp) -> String;
+
+    /// requires `env` to map placeholder variable identifiers (e.g., "?a") to
+    /// specific, concrete values (i.e., not variables).
+    fn concretize_term_conditional(&self, term: &Sexp, env: HashMap<String, Sexp>) -> Sexp {
+        if self.matches_var_pattern(term) {
+            let var_name = self.get_name_from_var(term);
+            assert!(var_name.starts_with("?"));
+            let var_name = var_name.trim_start_matches("?").to_string();
+            if !env.contains_key(&var_name) {
+                panic!("variable not found in env: {}", var_name);
+            }
+            return env[&var_name].clone();
+        }
+        match term {
+            Sexp::Atom(_) => term.clone(),
+            Sexp::List(l) => Sexp::List(
+                l.iter()
+                    .map(|x| self.concretize_term_conditional(x, env.clone()))
+                    .collect(),
+            ),
+        }
+    }
 
     fn concretize_term(&self, term: &Sexp, env: &mut HashMap<String, Sexp>) -> Sexp {
         match term {
@@ -283,16 +302,11 @@ pub trait Chomper {
     }
 
     fn concretize_rule(&self, rule: &Rule) -> (Sexp, Sexp) {
-        match rule.condition {
-            Some(_) => panic!(),
-            None => {
-                // replace all variables with some arbitrary variable.
-                let mut env = HashMap::default();
-                let lhs = self.concretize_term(&rule.lhs, &mut env);
-                let rhs = self.concretize_term(&rule.rhs, &mut env);
-                (lhs, rhs)
-            }
-        }
+        // replace all variables with some arbitrary variable.
+        let mut env = HashMap::default();
+        let lhs = self.concretize_term(&rule.lhs, &mut env);
+        let rhs = self.concretize_term(&rule.rhs, &mut env);
+        (lhs, rhs)
     }
 
     // Returns if the rule is derivable; i.e., it shouldn't be added.
@@ -312,15 +326,64 @@ pub trait Chomper {
         }
         let (lhs, rhs) = self.concretize_rule(rule);
         match &rule.condition {
-            Some(_) => panic!(),
+            Some((_, envs)) => {
+                for i in 0..envs.len() {
+                    let env = envs[i].clone();
+                    let concretized_lhs = self.concretize_term_conditional(&lhs, env.clone());
+                    let concretized_rhs = self.concretize_term_conditional(&rhs, env.clone());
+
+                    let mut new_egraph = initial_egraph.clone();
+                    new_egraph
+                        .parse_and_run_program(
+                            None,
+                            format!(
+                                r#"
+                            (let lhs {})
+                            (let rhs {})
+                            ({UNIVERSAL_RELATION} {concretized_lhs})
+                            ;;; ({UNIVERSAL_RELATION} {concretized_rhs})
+                            "#,
+                                concretized_lhs.to_string(),
+                                concretized_rhs.to_string()
+                            )
+                            .as_str(),
+                        )
+                        .unwrap();
+
+                    new_egraph
+                        .parse_and_run_program(
+                            None,
+                            r#"
+                        (run-schedule
+                            (saturate non-cond-rewrites)
+                            (saturate cond-rewrites))
+                    "#,
+                        )
+                        .unwrap();
+
+                    let result = new_egraph.parse_and_run_program(
+                        None,
+                        r#"
+                        (check (= lhs rhs))
+                    "#,
+                    );
+
+                    if !result.is_ok() {
+                        // if for even a single environment, the lhs does not merge with the rhs,
+                        // then the rule is underivable.
+                        return false;
+                    }
+                }
+                true
+            }
             None => {
                 initial_egraph
                     .parse_and_run_program(
                         None,
                         format!(
                             r#"
-                    (let lhs {})
-                    (let rhs {})
+                            (let lhs {})
+                            (let rhs {})
                     "#,
                             self.replace_vars(lhs.to_string().as_str()),
                             self.replace_vars(rhs.to_string().as_str())
@@ -334,36 +397,28 @@ pub trait Chomper {
                         None,
                         r#"
                         (run-schedule
-                            (run non-cond-rewrites)
-                            (run cond-rewrites))
+                            (saturate non-cond-rewrites)
+                            (saturate cond-rewrites))
                     "#,
                     )
                     .unwrap();
 
-                let status = initial_egraph.parse_and_run_program(
-                    None,
-                    r#"
+                initial_egraph
+                    .parse_and_run_program(
+                        None,
+                        r#"
                     (check (= lhs rhs))
                     "#,
-                );
-                if status.is_err() {
-                    return false;
-                } else {
-                    println!("skipping {} ~> {}", lhs, rhs);
-                }
-                true
+                    )
+                    .is_ok()
             }
         }
     }
 
     fn generalize_sexp(&self, sexp: Sexp, id_to_gen_id: &mut HashMap<String, String>) -> Sexp {
         if self.matches_var_pattern(&sexp) {
-            let var_name = sexp.to_string();
-            let len = id_to_gen_id.len();
-            id_to_gen_id
-                .entry(var_name.clone())
-                .or_insert_with(|| ruler::letter(len).to_string());
-            return Sexp::Atom(format!("?{}", id_to_gen_id[&var_name]));
+            let var_name = self.get_name_from_var(&sexp);
+            return Sexp::Atom(format!("?{var_name}"));
         }
         match sexp {
             Sexp::Atom(atom) => Sexp::Atom(atom),
@@ -382,14 +437,25 @@ pub trait Chomper {
         let new_lhs = self.generalize_sexp(rule.lhs.clone(), &mut id_to_gen_id);
         let new_rhs = self.generalize_sexp(rule.rhs.clone(), &mut id_to_gen_id);
 
+        if rule.condition.is_none() {
+            return Rule {
+                condition: None,
+                lhs: new_lhs,
+                rhs: new_rhs,
+            };
+        }
+
         let condition = rule
             .condition
             .as_ref()
-            .map(|cond| self.generalize_sexp(cond.clone(), &mut id_to_gen_id));
+            .map(|cond| self.generalize_sexp(cond.clone().0, &mut id_to_gen_id));
 
         Rule {
             // TODO: later
-            condition,
+            condition: Some((
+                condition.unwrap(),
+                rule.condition.as_ref().unwrap().1.clone(),
+            )),
             lhs: new_lhs,
             rhs: new_rhs,
         }
@@ -502,9 +568,30 @@ pub trait Chomper {
                         continue;
                     }
                     let preds = mask_to_preds.get(&same_vals).unwrap();
+                    let global_env = self.get_env();
                     for pred in preds {
+                        let mut envs: Vec<HashMap<String, Sexp>> = vec![];
+                        // get the environment which satisfies the condition
+                        for (i, val) in same_vals.iter().enumerate() {
+                            // get at most EXAMPLE_COUNT environments
+                            if envs.len() > EXAMPLE_COUNT {
+                                break;
+                            }
+                            if !val {
+                                continue;
+                            }
+                            let mut env: HashMap<String, Sexp> = HashMap::default();
+                            for (variable, cvec) in global_env {
+                                env.insert(
+                                    variable.clone(),
+                                    self.make_constant(cvec[i].as_ref().unwrap().clone()),
+                                );
+                            }
+                            envs.push(env);
+                        }
+
                         let rule = Rule {
-                            condition: Some(Sexp::from_str(pred).unwrap()),
+                            condition: Some((Sexp::from_str(pred).unwrap(), envs)),
                             lhs: term1.clone(),
                             rhs: term2.clone(),
                         };
@@ -549,25 +636,23 @@ pub trait Chomper {
     fn add_conditional_rewrite(&mut self, egraph: &mut EGraph, rule: &Rule) {
         // TODO: @ninehusky: let's brainstorm ways to encode conditional equality with respect to a
         // specific condition (see #20).
-        let cond = rule.condition.as_ref().unwrap().to_string();
+        let (cond, _) = rule.condition.as_ref().unwrap();
         let term1 = rule.lhs.to_string();
         let term2 = rule.rhs.to_string();
-
-        println!(
-            "adding conditional rewrite: if {} then {} -> {}",
-            cond, term1, term2
-        );
 
         let cond_rewrite_prog = format!(
             r#"
             (rule
                 (({UNIVERSAL_RELATION} {term1}))
-                ((union {term1} (ite {cond} {term2} {term1})))
+
+                (
+                    (let temp (ite {cond} {term2} {term1}))
+                    ({UNIVERSAL_RELATION} temp)
+                    (union {term1} temp)
+                )
                 :ruleset cond-rewrites)
         "#
         );
-
-        // println!("cond rewrite prog: {}", cond_rewrite_prog);
 
         egraph
             .parse_and_run_program(None, &cond_rewrite_prog)
