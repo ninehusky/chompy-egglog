@@ -25,12 +25,19 @@ impl Chomper for HalideChomper {
         "HalideExpr".to_string()
     }
 
+    fn make_var(&self, var: &str) -> Sexp {
+        Sexp::List(vec![
+            Sexp::Atom("Var".to_string()),
+            Sexp::Atom(var.to_string()),
+        ])
+    }
+
     fn productions(&self) -> ruler::enumo::Workload {
         Workload::new(&[
-            format!(
-                "(ternary {} {} {})",
-                TERM_PLACEHOLDER, TERM_PLACEHOLDER, TERM_PLACEHOLDER
-            ),
+            // format!(
+            //     "(ternary {} {} {})",
+            //     TERM_PLACEHOLDER, TERM_PLACEHOLDER, TERM_PLACEHOLDER
+            // ),
             format!("(binary {} {})", TERM_PLACEHOLDER, TERM_PLACEHOLDER),
             format!("(unary {})", TERM_PLACEHOLDER),
         ])
@@ -46,7 +53,8 @@ impl Chomper for HalideChomper {
     }
 
     fn atoms(&self) -> Workload {
-        Workload::new(&["(Var a)", "(Var b)", "(Lit 1)", "(Lit 0)"])
+        // Workload::new(&["(Var a)", "(Var b)", "(Lit 1)", "(Lit 0)"])
+        Workload::new(&["(Var a)", "(Var b)"])
     }
 
     fn matches_var_pattern(&self, term: &ruler::enumo::Sexp) -> bool {
