@@ -307,6 +307,7 @@ pub mod tests {
     }
 
     // TODO: TEST FOR THIS! I can't find a good example to test this.
+    // See #41.
     // #[test]
     // fn test_ite_conditional_derivability() {
     // }
