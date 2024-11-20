@@ -10,7 +10,7 @@ use z3::ast::Ast;
 use chompy::utils::TERM_PLACEHOLDER;
 use num::Zero;
 
-pub const CVEC_LEN: usize = 50;
+pub const CVEC_LEN: usize = 20;
 
 #[derive(Debug, Clone)]
 pub struct HalideChomper {

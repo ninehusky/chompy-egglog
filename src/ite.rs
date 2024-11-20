@@ -1,7 +1,5 @@
 use std::{str::FromStr, sync::Arc};
 
-use log::info;
-
 use std::fmt::Debug;
 
 use egglog::{
@@ -85,8 +83,6 @@ impl PrimitiveLike for Ite {
     ) -> Option<egglog::Value> {
         let egraph = egraph.unwrap();
         let sexp = Sexp::from_str(&egraph.extract_value_to_string(values[0])).unwrap();
-
-        // println!("apply on {}", sexp);
 
         if self.interpreter.interp_cond(&sexp) {
             Some(values[1])

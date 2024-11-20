@@ -1,5 +1,4 @@
-use egglog::{EGraph, SerializeConfig};
-use indexmap::{Equivalent, IndexSet};
+use egglog::EGraph;
 use ruler::enumo::{Filter, Metric, Pattern};
 use ruler::{HashMap, HashSet, ValidationResult};
 use utils::{TERM_PLACEHOLDER, UNIVERSAL_RELATION};
@@ -8,7 +7,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
-use log::info;
+// use log::info;
 use ruler::enumo::{Sexp, Workload};
 
 pub mod ite;
@@ -66,7 +65,7 @@ pub trait Chomper {
                 result += format!(" {token} ").as_str();
             }
         }
-        String::from(result)
+        result
     }
 
     fn make_mask_to_preds(&mut self) -> HashMap<Vec<bool>, HashSet<String>> {
@@ -88,9 +87,6 @@ pub trait Chomper {
         let mut max_eclass_id = 0;
 
         let initial_egraph = egraph.clone();
-
-        let mut non_conditional_rules: Vec<Rule> = vec![];
-        let mut conditional_rules: Vec<Rule> = vec![];
 
         for current_size in 0..MAX_SIZE {
             println!("\n\nadding programs of size {}:", current_size);
@@ -128,12 +124,10 @@ pub trait Chomper {
 
             let memo = &mut HashSet::default();
 
-            let mut id_to_gen_id: HashMap<String, String> = HashMap::default();
-
             let mut seen_terms: HashSet<String> = HashSet::default();
 
             for term in &new_workload.force() {
-                let generalized = self.generalize_sexp(term.clone(), &mut id_to_gen_id);
+                let generalized = self.generalize_sexp(term.clone());
 
                 seen_terms.insert(generalized.to_string());
 
@@ -164,7 +158,8 @@ pub trait Chomper {
                         None,
                         r#"
                         (run-schedule
-                            (run non-cond-rewrites))
+                            (saturate non-cond-rewrites)
+                            (saturate cond-rewrites))
                     "#,
                     )
                     .unwrap();
@@ -180,11 +175,11 @@ pub trait Chomper {
 
                 for val in &vals.conditional {
                     let generalized = self.generalize_rule(val);
+                    if found_rules.contains(&generalized) {
+                        continue;
+                    }
                     if let ValidationResult::Valid = self.validate_rule(&generalized) {
                         if utils::does_rule_have_good_vars(&generalized) {
-                            if found_rules.contains(&generalized) {
-                                continue;
-                            }
                             let rule = Rule {
                                 condition: generalized.condition.clone(),
                                 lhs: generalized.lhs.clone(),
@@ -193,6 +188,17 @@ pub trait Chomper {
                             if !self.check_derivability(&initial_egraph, &found_rules, &generalized)
                             {
                                 found_rules.push(rule);
+                                egraph
+                                    .parse_and_run_program(
+                                        None,
+                                        format!(
+                                            r#"(cond-equal {} {})"#,
+                                            self.make_string_not_bad(&val.lhs.to_string()).as_str(),
+                                            self.make_string_not_bad(&val.rhs.to_string()).as_str()
+                                        )
+                                        .as_str(),
+                                    )
+                                    .unwrap();
                                 self.add_conditional_rewrite(egraph, &generalized);
                                 println!(
                                     "Conditional rule: if {} then {} ~> {}",
@@ -319,16 +325,15 @@ pub trait Chomper {
         let mut initial_egraph = initial_egraph.clone();
         for rule in ruleset {
             if rule.condition.is_some() {
-                self.add_conditional_rewrite(&mut initial_egraph, &rule);
+                self.add_conditional_rewrite(&mut initial_egraph, rule);
             } else {
-                self.add_rewrite(&mut initial_egraph, &rule);
+                self.add_rewrite(&mut initial_egraph, rule);
             }
         }
         let (lhs, rhs) = self.concretize_rule(rule);
         match &rule.condition {
             Some((_, envs)) => {
-                for i in 0..envs.len() {
-                    let env = envs[i].clone();
+                for env in envs {
                     let concretized_lhs = self.concretize_term_conditional(&lhs, env.clone());
                     let concretized_rhs = self.concretize_term_conditional(&rhs, env.clone());
 
@@ -343,8 +348,7 @@ pub trait Chomper {
                             ({UNIVERSAL_RELATION} {concretized_lhs})
                             ;;; ({UNIVERSAL_RELATION} {concretized_rhs})
                             "#,
-                                concretized_lhs.to_string(),
-                                concretized_rhs.to_string()
+                                concretized_lhs, concretized_rhs
                             )
                             .as_str(),
                         )
@@ -354,9 +358,8 @@ pub trait Chomper {
                         .parse_and_run_program(
                             None,
                             r#"
-                        (run-schedule
-                            (saturate non-cond-rewrites)
-                            (saturate cond-rewrites))
+                            (run non-cond-rewrites 5)
+                            (run cond-rewrites 5)
                     "#,
                         )
                         .unwrap();
@@ -368,7 +371,7 @@ pub trait Chomper {
                     "#,
                     );
 
-                    if !result.is_ok() {
+                    if result.is_err() {
                         // if for even a single environment, the lhs does not merge with the rhs,
                         // then the rule is underivable.
                         return false;
@@ -396,9 +399,8 @@ pub trait Chomper {
                     .parse_and_run_program(
                         None,
                         r#"
-                        (run-schedule
-                            (saturate non-cond-rewrites)
-                            (saturate cond-rewrites))
+                        (run non-cond-rewrites 5)
+                        (run cond-rewrites 5)
                     "#,
                     )
                     .unwrap();
@@ -415,7 +417,7 @@ pub trait Chomper {
         }
     }
 
-    fn generalize_sexp(&self, sexp: Sexp, id_to_gen_id: &mut HashMap<String, String>) -> Sexp {
+    fn generalize_sexp(&self, sexp: Sexp) -> Sexp {
         if self.matches_var_pattern(&sexp) {
             let var_name = self.get_name_from_var(&sexp);
             return Sexp::Atom(format!("?{var_name}"));
@@ -425,7 +427,7 @@ pub trait Chomper {
             Sexp::List(list) => {
                 let mut els = vec![];
                 for el in list {
-                    els.push(self.generalize_sexp(el, id_to_gen_id));
+                    els.push(self.generalize_sexp(el));
                 }
                 Sexp::List(els)
             }
@@ -433,9 +435,8 @@ pub trait Chomper {
     }
 
     fn generalize_rule(&self, rule: &Rule) -> Rule {
-        let mut id_to_gen_id: HashMap<String, String> = HashMap::default();
-        let new_lhs = self.generalize_sexp(rule.lhs.clone(), &mut id_to_gen_id);
-        let new_rhs = self.generalize_sexp(rule.rhs.clone(), &mut id_to_gen_id);
+        let new_lhs = self.generalize_sexp(rule.lhs.clone());
+        let new_rhs = self.generalize_sexp(rule.rhs.clone());
 
         if rule.condition.is_none() {
             return Rule {
@@ -448,7 +449,7 @@ pub trait Chomper {
         let condition = rule
             .condition
             .as_ref()
-            .map(|cond| self.generalize_sexp(cond.clone().0, &mut id_to_gen_id));
+            .map(|cond| self.generalize_sexp(cond.clone().0));
 
         Rule {
             // TODO: later
@@ -538,7 +539,12 @@ pub trait Chomper {
                         )
                         .is_ok()
                     {
-                        // TODO: we're going to ignore multiple conditionals for now, there are too many.
+                        println!(
+                            "we already have a conditional rule for {}= {}",
+                            term1, term2
+                        );
+                        // don't try to rederive some new way to link two e-classes together, if we
+                        // already did it.
                         continue;
                     }
 
@@ -612,9 +618,7 @@ pub trait Chomper {
             if term2 == "?a" {
                 panic!();
             }
-            let temp = term2;
-            term2 = term1;
-            term1 = temp;
+            std::mem::swap(&mut term2, &mut term1);
         }
 
         egraph
