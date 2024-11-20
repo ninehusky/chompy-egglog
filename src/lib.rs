@@ -500,7 +500,6 @@ pub trait Chomper {
 
         let mask_to_preds = self.make_mask_to_preds();
 
-        println!("hi from cvec match");
         let eclass_term_map: HashMap<i64, Sexp> = self.reset_eclass_term_map(egraph);
         println!("eclass term map len: {}", eclass_term_map.len());
         let ec_keys: Vec<&i64> = eclass_term_map.keys().collect();

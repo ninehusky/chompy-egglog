@@ -197,7 +197,10 @@ pub mod tests {
     }
 
     #[test]
-    fn test_ite_non_conditional_derivability() {
+    // checks that non-conditional rules can fire together.
+    // i.e., if we have rules (p and q) -> (q and p) as well as (p and false) -> false, then
+    // they can compose together to get (false and p) -> false.
+    fn test_ite_non_conditional_compose() {
         #[derive(Debug)]
         struct BoolInterpreter;
 
@@ -302,110 +305,9 @@ pub mod tests {
             )
             .unwrap();
     }
-    #[test]
-    fn test_ite_conditional_derivability() {
-        #[derive(Debug)]
-        struct MathInterpreter;
 
-        impl PredicateInterpreter for MathInterpreter {
-            fn interp_cond(&self, sexp: &Sexp) -> bool {
-                fn interp_internal(sexp: &Sexp) -> i64 {
-                    match sexp {
-                        Sexp::Atom(atom) => panic!("Unexpected atom: {}", atom),
-                        Sexp::List(l) => {
-                            if let Sexp::Atom(op) = &l[0] {
-                                match op.as_str() {
-                                    "Eq" => {
-                                        let a = interp_internal(&l[1]);
-                                        let b = interp_internal(&l[2]);
-                                        if a == b {
-                                            1
-                                        } else {
-                                            0
-                                        }
-                                    }
-                                    "Ge" => {
-                                        let a = interp_internal(&l[1]);
-                                        let b = interp_internal(&l[2]);
-                                        if a >= b {
-                                            1
-                                        } else {
-                                            0
-                                        }
-                                    }
-                                    "Abs" => interp_internal(&l[1]).abs(),
-                                    "Mul" => interp_internal(&l[1]) * interp_internal(&l[2]),
-                                    "Num" => l[1].to_string().parse().unwrap(),
-                                    _ => panic!("Unexpected operator: {:?}", op),
-                                }
-                            } else {
-                                panic!("Unexpected list operator: {:?}", l[0]);
-                            }
-                        }
-                    }
-                }
-
-                interp_internal(sexp) == 1
-            }
-        }
-
-        let math_sort = Arc::new(EqSort {
-            name: "Math".into(),
-        });
-        let dummy_sort = Arc::new(DummySort {
-            sort: math_sort.clone(),
-            interpreter: Arc::new(MathInterpreter),
-        });
-
-        let mut egraph = egglog::EGraph::default();
-
-        egraph.add_arcsort(math_sort.clone()).unwrap();
-        egraph.add_arcsort(dummy_sort).unwrap();
-
-        egraph
-            .parse_and_run_program(
-                None,
-                r#"
-                (function Num (i64) Math)
-                (function Mul (Math Math) Math)
-                (function Eq (Math Math) Math)
-                (function Ge (Math Math) Math)
-                (function Abs (Math) Math)
-
-                (relation universe (Math))
-                "#,
-            )
-            .unwrap();
-
-        egraph
-            .parse_and_run_program(
-                None,
-                r#"
-                (rule
-                    ((universe ?e))
-                    (
-                        (let temp (ite (Ge ?e (Num -1)) (Abs ?e) ?e))
-                        (universe temp)
-                        (union ?e temp)
-                    )
-                )
-
-                "#,
-            )
-            .unwrap();
-
-        egraph
-            .parse_and_run_program(
-                None,
-                r#"
-                (universe (Mul (Num 1) (Num 1)))
-            "#,
-            )
-            .unwrap();
-
-        egraph.parse_and_run_program(None, "(run 1000)").unwrap();
-
-        let serialized = egraph.serialize(egglog::SerializeConfig::default());
-        serialized.to_svg_file("ite.svg").unwrap();
-    }
+    // TODO: TEST FOR THIS! I can't find a good example to test this.
+    // #[test]
+    // fn test_ite_conditional_derivability() {
+    // }
 }
