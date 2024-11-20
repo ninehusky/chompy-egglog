@@ -1,7 +1,5 @@
 use std::{str::FromStr, sync::Arc};
 
-use log::info;
-
 use std::fmt::Debug;
 
 use egglog::{
@@ -85,8 +83,6 @@ impl PrimitiveLike for Ite {
     ) -> Option<egglog::Value> {
         let egraph = egraph.unwrap();
         let sexp = Sexp::from_str(&egraph.extract_value_to_string(values[0])).unwrap();
-
-        info!("apply on {}", sexp);
 
         if self.interpreter.interp_cond(&sexp) {
             Some(values[1])
@@ -199,4 +195,120 @@ pub mod tests {
             .parse_and_run_program(None, "(fail (check (= (Mul (Num 2) (Num 2)) (Num 2))))")
             .unwrap();
     }
+
+    #[test]
+    // checks that non-conditional rules can fire together.
+    // i.e., if we have rules (p and q) -> (q and p) as well as (p and false) -> false, then
+    // they can compose together to get (false and p) -> false.
+    fn test_ite_non_conditional_compose() {
+        #[derive(Debug)]
+        struct BoolInterpreter;
+
+        impl PredicateInterpreter for BoolInterpreter {
+            fn interp_cond(&self, sexp: &Sexp) -> bool {
+                fn interp_internal(sexp: &Sexp) -> bool {
+                    match sexp {
+                        Sexp::Atom(atom) => panic!("Unexpected atom: {}", atom),
+                        Sexp::List(l) => {
+                            if let Sexp::Atom(op) = &l[0] {
+                                match op.as_str() {
+                                    "Bool" => {
+                                        if let Sexp::Atom(b) = &l[1] {
+                                            b == "true"
+                                        } else {
+                                            panic!("Unexpected atom: {:?}", l[1]);
+                                        }
+                                    }
+                                    "And" => interp_internal(&l[1]) && interp_internal(&l[2]),
+                                    "Or" => interp_internal(&l[1]) || interp_internal(&l[2]),
+                                    "Not" => !interp_internal(&l[1]),
+                                    _ => panic!("Unexpected operator: {:?}", op),
+                                }
+                            } else {
+                                panic!("Unexpected list operator: {:?}", l[0]);
+                            }
+                        }
+                    }
+                }
+                interp_internal(sexp)
+            }
+        }
+
+        let bool_sort = Arc::new(EqSort {
+            name: "BoolExpr".into(),
+        });
+        let dummy_sort = Arc::new(DummySort {
+            sort: bool_sort.clone(),
+            interpreter: Arc::new(BoolInterpreter),
+        });
+
+        let mut egraph = egglog::EGraph::default();
+
+        egraph.add_arcsort(bool_sort.clone()).unwrap();
+        egraph.add_arcsort(dummy_sort).unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (function Bool (String) BoolExpr)
+                (function And (BoolExpr BoolExpr) BoolExpr)
+                (function Or (BoolExpr BoolExpr) BoolExpr)
+                (function Not (BoolExpr) BoolExpr)
+
+                (relation universe (BoolExpr))
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (rule
+                    ((universe (And ?a (Bool "false"))))
+                    (
+                        (let temp (ite (Bool "true") (Bool "false") (Bool "false")))
+                        (universe temp)
+                        (union (And ?a (Bool "false")) temp)
+                    )
+                )
+
+                (rule
+                    ((universe (And ?a ?b)))
+                    (
+                        (let temp (ite (Bool "true") (And ?b ?a) (And ?b ?a)))
+                        (universe temp)
+                        (union (And ?a ?b) temp)
+                    )
+                )
+
+                "#,
+            )
+            .unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (universe (And (Bool "false") (Bool "true")))
+            "#,
+            )
+            .unwrap();
+
+        egraph.parse_and_run_program(None, "(run 1000)").unwrap();
+
+        egraph
+            .parse_and_run_program(
+                None,
+                "(check (= (And (Bool \"false\") (Bool \"true\")) (Bool \"false\")))",
+            )
+            .unwrap();
+    }
+
+    // TODO: TEST FOR THIS! I can't find a good example to test this.
+    // See #41.
+    // #[test]
+    // fn test_ite_conditional_derivability() {
+    // }
 }

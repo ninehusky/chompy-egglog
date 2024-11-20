@@ -24,6 +24,7 @@
 (function eclass (HalideExpr) i64 :merge (min old new))
 
 (relation universe (HalideExpr))
+(relation cond-equal (HalideExpr HalideExpr))
 
 (ruleset eclass-report)
 (ruleset non-cond-rewrites)

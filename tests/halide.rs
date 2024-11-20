@@ -21,16 +21,44 @@ impl Chomper for HalideChomper {
     type Constant = i64;
     type Value = i64;
 
+    fn make_constant(&self, constant: chompy::Constant<Self>) -> Sexp {
+        Sexp::List(vec![
+            Sexp::Atom("Lit".to_string()),
+            Sexp::Atom(constant.to_string()),
+        ])
+    }
+
     fn language_name() -> String {
         "HalideExpr".to_string()
     }
 
+    fn make_var(&self, var: &str) -> Sexp {
+        Sexp::List(vec![
+            Sexp::Atom("Var".to_string()),
+            Sexp::Atom(var.to_string()),
+        ])
+    }
+
+    fn get_name_from_var(&self, var: &Sexp) -> String {
+        match var {
+            Sexp::List(l) => {
+                assert_eq!(l.len(), 2);
+                if let Sexp::Atom(name) = &l[1] {
+                    name.clone()
+                } else {
+                    panic!("Expected atom for variable name, found {:?}", l[1])
+                }
+            }
+            _ => panic!("Expected list for variable, found {:?}", var),
+        }
+    }
+
     fn productions(&self) -> ruler::enumo::Workload {
         Workload::new(&[
-            format!(
-                "(ternary {} {} {})",
-                TERM_PLACEHOLDER, TERM_PLACEHOLDER, TERM_PLACEHOLDER
-            ),
+            // format!(
+            //     "(ternary {} {} {})",
+            //     TERM_PLACEHOLDER, TERM_PLACEHOLDER, TERM_PLACEHOLDER
+            // ),
             format!("(binary {} {})", TERM_PLACEHOLDER, TERM_PLACEHOLDER),
             format!("(unary {})", TERM_PLACEHOLDER),
         ])
@@ -46,7 +74,8 @@ impl Chomper for HalideChomper {
     }
 
     fn atoms(&self) -> Workload {
-        Workload::new(&["(Var a)", "(Var b)", "(Lit 1)", "(Lit 0)"])
+        // Workload::new(&["(Var a)", "(Var b)", "(Lit 1)", "(Lit 0)"])
+        Workload::new(&["(Var a)", "(Var b)"])
     }
 
     fn matches_var_pattern(&self, term: &ruler::enumo::Sexp) -> bool {
@@ -251,7 +280,7 @@ impl Chomper for HalideChomper {
         let lexpr = sexp_to_z3(&ctx, &rule.lhs);
         let rexpr = sexp_to_z3(&ctx, &rule.rhs);
         if rule.condition.is_some() {
-            let assumption = rule.condition.clone().unwrap();
+            let assumption = rule.condition.clone().unwrap().0;
             let aexpr = sexp_to_z3(&ctx, &assumption);
             let zero = z3::ast::Int::from_i64(&ctx, 0);
             let cond = z3::ast::Bool::not(&aexpr._eq(&zero));
