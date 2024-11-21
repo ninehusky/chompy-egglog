@@ -30,8 +30,8 @@ pub struct Rules {
     pub conditional: Vec<Rule>,
 }
 
-pub const MAX_SIZE: usize = 30;
-pub const EXAMPLE_COUNT: usize = 5;
+pub const MAX_SIZE: usize = 10;
+pub const EXAMPLE_COUNT: usize = 1;
 
 #[macro_export]
 macro_rules! init_egraph {
@@ -153,16 +153,26 @@ pub trait Chomper {
             }
 
             loop {
+                println!("top of loop");
+                println!("rules we've found: {}", found_rules.len());
+                let serialized = egraph.serialize(egglog::SerializeConfig::default());
+                println!("main egraph has {} nodes", serialized.nodes.len());
                 egraph
                     .parse_and_run_program(
                         None,
                         r#"
-                        (run-schedule
-                            (saturate non-cond-rewrites)
-                            (saturate cond-rewrites))
+                        (run non-cond-rewrites 1)
+                        (run cond-rewrites 1)
                     "#,
                     )
                     .unwrap();
+
+                let serialized = egraph.serialize(egglog::SerializeConfig::default());
+                println!("main egraph has {} nodes", serialized.nodes.len());
+                serialized
+                    .to_svg_file(format!("egraph-{}.svg", current_size))
+                    .unwrap();
+
                 println!("starting cvec match");
                 let vals = self.cvec_match(egraph, memo);
 
@@ -322,6 +332,9 @@ pub trait Chomper {
         ruleset: &Vec<Rule>,
         rule: &Rule,
     ) -> bool {
+        println!("rules: {}", ruleset.len());
+        // TODO: fix. return false;
+
         let mut initial_egraph = initial_egraph.clone();
         for rule in ruleset {
             if rule.condition.is_some() {
@@ -358,11 +371,18 @@ pub trait Chomper {
                         .parse_and_run_program(
                             None,
                             r#"
-                            (run non-cond-rewrites 5)
-                            (run cond-rewrites 5)
+
+                        (run non-cond-rewrites 10 :until (= lhs rhs))
+                        (run cond-rewrites 10 :until (= lhs rhs))
+                            ;;; (run non-cond-rewrites :until (= lhs rhs))
+                            ;;; (run cond-rewrites :until (= lhs rhs))
                     "#,
                         )
                         .unwrap();
+
+                    let serialized = new_egraph.serialize(egglog::SerializeConfig::default());
+                    println!("eclasses: {}", serialized.root_eclasses.len());
+                    println!("nodes: {}", serialized.nodes.len());
 
                     let result = new_egraph.parse_and_run_program(
                         None,
@@ -399,11 +419,16 @@ pub trait Chomper {
                     .parse_and_run_program(
                         None,
                         r#"
-                        (run non-cond-rewrites 5)
-                        (run cond-rewrites 5)
+                        (run non-cond-rewrites 10 :until (= lhs rhs))
+                        ;;; uncommenting the line below will break things, because it will try to interpret variables.
+                        ;;; (run cond-rewrites 3)
                     "#,
                     )
                     .unwrap();
+
+                let serialized = initial_egraph.serialize(egglog::SerializeConfig::default());
+                println!("eclasses: {}", serialized.root_eclasses.len());
+                println!("nodes: {}", serialized.nodes.len());
 
                 initial_egraph
                     .parse_and_run_program(
@@ -550,14 +575,22 @@ pub trait Chomper {
                     let mut has_meaningful_diff = false;
                     let mut same_vals: Vec<bool> = vec![];
 
+                    let mut matching_count = 0;
+
                     for (cvec_1_el, cvec_2_el) in cvec1.iter().zip(cvec2.iter()) {
                         let has_match = cvec_1_el == cvec_2_el;
+                        if has_match {
+                            matching_count += 1;
+                        }
                         if !has_match && cvec_1_el.is_some() || cvec_2_el.is_some() {
                             has_meaningful_diff = true;
                         }
                         same_vals.push(has_match);
                     }
 
+                    if matching_count < 5 {
+                        continue;
+                    }
                     if !has_meaningful_diff {
                         println!("no meaningful diff");
                         continue;
@@ -613,22 +646,44 @@ pub trait Chomper {
         let mut term2 = self.make_string_not_bad(rule.rhs.to_string().as_str());
         // TODO: deal with rewrites which are essentially "anything matches this". they are not
         // good.
-        if term1 == "?a" {
-            if term2 == "?a" {
-                panic!();
-            }
+        if term1.len() == 2 {
             std::mem::swap(&mut term2, &mut term1);
         }
+
+        let prog = format!(
+            r#"
+                    (rule
+                     ({term1})
+                     (
+                        ({UNIVERSAL_RELATION} {term1})
+                        ({UNIVERSAL_RELATION} {term2})
+                        (union {term1} {term2})
+                     )
+                      :ruleset non-cond-rewrites)
+
+                    ; (rewrite
+                    ;     {term1}
+                    ;     {term2}
+                    ;     :ruleset non-cond-rewrites)
+                    "#
+        );
 
         egraph
             .parse_and_run_program(
                 None,
                 format!(
                     r#"
-                    (rewrite
-                        {term1}
-                        {term2}
-                        :ruleset non-cond-rewrites)
+                    (rule
+                     ({term1})
+                     (({UNIVERSAL_RELATION} {term1})
+                      ({UNIVERSAL_RELATION} {term2})
+                      (union {term1} {term2}))
+                      :ruleset non-cond-rewrites)
+
+                    ; (rewrite
+                    ;     {term1}
+                    ;     {term2}
+                    ;     :ruleset non-cond-rewrites)
                     "#
                 )
                 .as_str(),
