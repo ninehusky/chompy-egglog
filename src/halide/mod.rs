@@ -17,10 +17,9 @@ pub mod halide;
 
 // returns handwritten conditional rules which are valid.
 // TODO: make github issue about invalid handwritten rules.
-fn get_validated_handwritten_rules() -> Vec<Rule> {
-    let lines = include_str!("rules.txt").lines();
+pub fn get_validated_handwritten_rules() -> Vec<Rule> {
+    let lines = include_str!("../../tests/halide/rules.txt").lines();
     let chomper = HalideChomper {
-        memo: Default::default(),
         env: Default::default(),
     };
     let mut rules: Vec<Rule> = vec![];
@@ -54,10 +53,7 @@ fn get_validated_handwritten_rules() -> Vec<Rule> {
 #[test]
 fn run_halide_experiment() {
     let env = HalideChomper::make_env(&mut StdRng::seed_from_u64(0));
-    let mut chomper = HalideChomper {
-        env,
-        memo: Default::default(),
-    };
+    let mut chomper = HalideChomper { env };
     let mut egraph = EGraph::default();
 
     #[derive(Debug)]
@@ -86,7 +82,7 @@ fn run_halide_experiment() {
     });
     egraph.add_arcsort(halide_sort.clone()).unwrap();
     egraph.add_arcsort(dummy_sort).unwrap();
-    init_egraph!(egraph, "../egglog/halide.egg");
+    init_egraph!(egraph, "../../tests/egglog/halide.egg");
 
     let initial_egraph = egraph.clone();
 
@@ -153,7 +149,6 @@ fn run_halide_experiment() {
         }
 
         let mut chomper = HalideChomper {
-            memo: Default::default(),
             env: higher_lvl_env.clone(),
         };
 

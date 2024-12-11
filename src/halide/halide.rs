@@ -16,8 +16,6 @@ pub const CVEC_LEN: usize = 20;
 
 #[derive(Debug, Clone)]
 pub struct HalideChomper {
-    // TODO: this might be buggy given new experiment structure.
-    pub memo: HashMap<String, CVec<Self>>,
     pub env: ruler::HashMap<String, CVec<Self>>,
 }
 
@@ -92,11 +90,8 @@ impl Chomper for HalideChomper {
     fn constant_pattern(&self) -> ruler::enumo::Pattern {
         "(Lit ?x)".parse().unwrap()
     }
-    fn interpret_term(&mut self, term: &ruler::enumo::Sexp) -> chompy::CVec<Self> {
-        if self.memo.contains_key(&term.to_string()) {
-            return self.memo.get(&term.to_string()).unwrap().clone();
-        }
-        let res = match term {
+    fn interpret_term(&self, term: &ruler::enumo::Sexp) -> chompy::CVec<Self> {
+        match term {
             Sexp::Atom(a) => panic!("Unexpected atom {}", a),
             Sexp::List(l) => {
                 assert!(l.len() > 1);
@@ -254,12 +249,10 @@ impl Chomper for HalideChomper {
                     }
                 }
             }
-        };
-        self.memo.insert(term.to_string(), res.clone());
-        res
+        }
     }
 
-    fn interpret_pred(&mut self, term: &ruler::enumo::Sexp) -> Vec<bool> {
+    fn interpret_pred(&self, term: &ruler::enumo::Sexp) -> Vec<bool> {
         let cvec = self.interpret_term(term);
         cvec.iter()
             .map(|x| {
@@ -319,10 +312,7 @@ impl Chomper for HalideChomper {
 impl HalideChomper {
     pub fn make_env(rng: &mut StdRng) -> HashMap<String, Vec<Option<i64>>> {
         let mut env = HashMap::default();
-        let dummy = HalideChomper {
-            env: env.clone(),
-            memo: Default::default(),
-        };
+        let dummy = HalideChomper { env: env.clone() };
         for atom in &dummy.atoms().force() {
             if let Sexp::List(l) = atom {
                 let atom_type = l[0].clone();
@@ -542,6 +532,7 @@ pub mod tests {
 
         #[derive(Debug)]
         struct HalidePredicateInterpreter {
+            memo: Default::default(),
             chomper: HalideChomper,
         }
 
@@ -566,7 +557,7 @@ pub mod tests {
         });
         egraph.add_arcsort(halide_sort.clone()).unwrap();
         egraph.add_arcsort(dummy_sort).unwrap();
-        init_egraph!(egraph, "../egglog/halide.egg");
+        init_egraph!(egraph, "../../tests/egglog/halide.egg");
 
         chomper.run_chompy(&mut egraph);
     }
