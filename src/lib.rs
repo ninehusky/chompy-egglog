@@ -7,10 +7,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
-// use log::info;
+use log::info;
 use ruler::enumo::{Sexp, Workload};
 
 pub mod ite;
+pub mod language;
 pub mod utils;
 
 pub type Constant<R> = <R as Chomper>::Constant;
@@ -81,15 +82,21 @@ pub trait Chomper {
         result
     }
 
+    /// Runs the Chompy algorithm, reasoning about programs up to size `MAX_SIZE`, and returns
+    /// a vector containing the ruleset it finds.
+    /// # Arguments
+    /// * `egraph` - the EGraph to run Chompy on.
+    ///
     fn run_chompy(&mut self, egraph: &mut EGraph) -> Vec<Rule> {
-        // TODO: i want to use a set here.
-        let mut found_rules: Vec<Rule> = vec![];
         let mut max_eclass_id = 0;
-
         let initial_egraph = egraph.clone();
+        let mut found_rules = vec![];
 
         for current_size in 0..MAX_SIZE {
-            println!("\n\nadding programs of size {}:", current_size);
+            info!(
+                "NEW ITERATION -- reasoning about programs of size {}:",
+                current_size
+            );
 
             println!("finding eclass term map...");
             let eclass_term_map = self
