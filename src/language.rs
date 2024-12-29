@@ -1,5 +1,5 @@
 use core::str;
-use std::fmt::Display;
+use std::{fmt::Display, ops::Neg};
 
 use ruler::{
     enumo::{Sexp, Workload},
@@ -24,7 +24,13 @@ pub trait ChompyLanguage {
     fn get_vals(&self) -> Vec<Constant<Self>>;
 
     /// Interprets the given term in the given environment.
-    fn eval(&self, sexp: &Sexp, env: &HashMap<String, CVec<Self>>) -> CVec<Self>;
+    fn eval(&self, env: &HashMap<String, CVec<Self>>) -> CVec<Self>;
+
+    fn make_sexp(&self) -> Sexp;
+
+    fn from_sexp(sexp: Sexp) -> Self
+    where
+        Self: Sized;
 
     fn const_type_as_str(&self) -> String;
 
@@ -37,6 +43,23 @@ pub trait ChompyLanguage {
 
     /// Returns a new workload that is the result of applying all
     /// functions to the `old_workload`.
+    /// ```
+    /// use chompy::language::{ChompyLanguage, MathLang};
+    /// use ruler::enumo::Workload;
+    /// let lang = MathLang::Var("dummy".to_string());
+    /// let old_workload = Workload::new(&["(Var x)".to_string()]);
+    /// let new_workload = lang.produce(&old_workload);
+    /// let expected: Vec<MathLang> = vec![
+    ///     MathLang::Abs(Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Neg(Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Add(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Sub(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Mul(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Div(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///  ];
+    ///  let actual = new_workload.force().iter().map(|x| MathLang::from_sexp(x.clone())).collect::<Vec<MathLang>>();
+    ///  assert_eq!(expected, actual);
+    /// ```
     fn produce(&self, old_workload: &Workload) -> Workload {
         let mut result_workload = Workload::empty();
         let funcs = self.get_funcs();
@@ -141,11 +164,34 @@ pub mod tests {
     #[derive(Clone)]
     pub struct MathLang;
 
+    impl From<Sexp> for MathLang {
+        fn from(sexp: Sexp) -> Self {
+            todo!()
+        }
+    }
+
+    impl Into<Sexp> for MathLang {
+        fn into(self) -> Sexp {
+            todo!()
+        }
+    }
+
     impl ChompyLanguage for MathLang {
         type Constant = i64;
 
         fn get_name(&self) -> String {
             "Math".to_string()
+        }
+
+        fn make_sexp(&self) -> Sexp {
+            todo!()
+        }
+
+        fn from_sexp(sexp: Sexp) -> Self
+        where
+            Self: Sized,
+        {
+            todo!()
         }
 
         fn const_type_as_str(&self) -> String {
@@ -160,7 +206,7 @@ pub mod tests {
             vec![1, 2, 3]
         }
 
-        fn eval(&self, _sexp: &Sexp, _env: &ruler::HashMap<String, CVec<Self>>) -> CVec<Self> {
+        fn eval(&self, _env: &ruler::HashMap<String, CVec<Self>>) -> CVec<Self> {
             todo!()
         }
 
@@ -196,5 +242,164 @@ pub mod tests {
         egraph
             .parse_and_run_program(None, "(check (Add (Var \"x\") (Var \"x\")))")
             .unwrap();
+    }
+}
+
+/// A generic language for testing purposes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MathLang {
+    Const(i64),
+    Var(String),
+    Abs(Box<MathLang>),
+    Neg(Box<MathLang>),
+    Add(Box<MathLang>, Box<MathLang>),
+    Sub(Box<MathLang>, Box<MathLang>),
+    Mul(Box<MathLang>, Box<MathLang>),
+    Div(Box<MathLang>, Box<MathLang>),
+}
+
+impl ChompyLanguage for MathLang {
+    type Constant = i64;
+    fn get_name(&self) -> String {
+        "MathLang".to_string()
+    }
+
+    fn get_vals(&self) -> Vec<Self::Constant> {
+        vec![1, 2, 3]
+    }
+
+    fn get_vars(&self) -> Vec<String> {
+        vec!["x".to_string(), "y".to_string(), "z".to_string()]
+    }
+
+    fn const_type_as_str(&self) -> String {
+        "i64".to_string()
+    }
+
+    fn get_funcs(&self) -> Vec<Vec<String>> {
+        vec![
+            vec![],
+            vec!["Abs".to_string(), "Neg".to_string()],
+            vec![
+                "Add".to_string(),
+                "Sub".to_string(),
+                "Mul".to_string(),
+                "Div".to_string(),
+            ],
+        ]
+    }
+
+    fn make_sexp(&self) -> Sexp {
+        match self {
+            MathLang::Const(c) => Sexp::List(vec![
+                Sexp::Atom("Const".to_string()),
+                Sexp::Atom(c.to_string()),
+            ]),
+            MathLang::Var(v) => Sexp::List(vec![
+                Sexp::Atom("Var".to_string()),
+                Sexp::Atom(v.to_string()),
+            ]),
+            MathLang::Abs(e) => Sexp::List(vec![Sexp::Atom("Abs".to_string()), e.make_sexp()]),
+            MathLang::Neg(e) => Sexp::List(vec![Sexp::Atom("Neg".to_string()), e.make_sexp()]),
+            MathLang::Add(e1, e2) => Sexp::List(vec![
+                Sexp::Atom("Add".to_string()),
+                e1.make_sexp(),
+                e2.make_sexp(),
+            ]),
+            MathLang::Sub(e1, e2) => Sexp::List(vec![
+                Sexp::Atom("Sub".to_string()),
+                e1.make_sexp(),
+                e2.make_sexp(),
+            ]),
+            MathLang::Mul(e1, e2) => Sexp::List(vec![
+                Sexp::Atom("Mul".to_string()),
+                e1.make_sexp(),
+                e2.make_sexp(),
+            ]),
+            MathLang::Div(e1, e2) => Sexp::List(vec![
+                Sexp::Atom("Div".to_string()),
+                e1.make_sexp(),
+                e2.make_sexp(),
+            ]),
+        }
+    }
+
+    fn from_sexp(sexp: Sexp) -> Self
+    where
+        Self: Sized,
+    {
+        match sexp {
+            Sexp::List(l) => {
+                let op = l[0].to_string();
+                match op.as_str() {
+                    "Const" => MathLang::Const(l[1].to_string().parse().unwrap()),
+                    "Var" => MathLang::Var(l[1].to_string()),
+                    "Abs" => MathLang::Abs(Box::new(MathLang::from_sexp(l[1].clone()))),
+                    "Neg" => MathLang::Neg(Box::new(MathLang::from_sexp(l[1].clone()))),
+                    "Add" => MathLang::Add(
+                        Box::new(MathLang::from_sexp(l[1].clone())),
+                        Box::new(MathLang::from_sexp(l[2].clone())),
+                    ),
+                    "Sub" => MathLang::Sub(
+                        Box::new(MathLang::from_sexp(l[1].clone())),
+                        Box::new(MathLang::from_sexp(l[2].clone())),
+                    ),
+                    "Mul" => MathLang::Mul(
+                        Box::new(MathLang::from_sexp(l[1].clone())),
+                        Box::new(MathLang::from_sexp(l[2].clone())),
+                    ),
+                    "Div" => MathLang::Div(
+                        Box::new(MathLang::from_sexp(l[1].clone())),
+                        Box::new(MathLang::from_sexp(l[2].clone())),
+                    ),
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn eval(&self, env: &HashMap<String, CVec<Self>>) -> CVec<Self> {
+        match self {
+            MathLang::Const(c) => vec![Some(*c)],
+            MathLang::Var(v) => env[v].clone(),
+            MathLang::Abs(e) => {
+                let e: CVec<Self> = e.eval(env);
+                e.into_iter()
+                    .map(|x| if let Some(x) = x { Some(x.abs()) } else { None })
+                    .collect()
+            }
+            MathLang::Neg(e) => {
+                let e = e.eval(env);
+                e.into_iter()
+                    .map(|x| if let Some(x) = x { Some(x.neg()) } else { None })
+                    .collect()
+            }
+            MathLang::Add(e1, e2)
+            | MathLang::Sub(e1, e2)
+            | MathLang::Mul(e1, e2)
+            | MathLang::Div(e1, e2) => {
+                let e1 = e1.eval(env);
+                let e2 = e2.eval(env);
+                let f = |(x, y): (Option<Self::Constant>, Option<Self::Constant>)| {
+                    if x.is_none() || y.is_none() {
+                        return None;
+                    }
+                    let x = x.unwrap();
+                    let y = y.unwrap();
+                    match self {
+                        MathLang::Add(_, _) => x.checked_add(y),
+                        MathLang::Sub(_, _) => x.checked_sub(y),
+                        MathLang::Mul(_, _) => x.checked_mul(y),
+                        MathLang::Div(_, _) => x.checked_div(y),
+                        _ => unreachable!(),
+                    }
+                };
+                e1.into_iter()
+                    .zip(e2.into_iter())
+                    .map(|(x, y)| f((x, y)))
+                    .collect()
+            }
+        }
     }
 }

@@ -46,7 +46,7 @@ pub trait Chomper {
     /// Adds the given term to the e-graph.
     /// Optionally, sets the eclass id of the term to the given id.
     fn add_term(&self, term: &Sexp, egraph: &mut EGraph, eclass_id: Option<usize>) {
-        let term = term.to_string();
+        let term = format_sexp(term);
         let prog = format!("({} {})", UNIVERSAL_RELATION, term);
         egraph.parse_and_run_program(None, &prog).unwrap();
         if let Some(id) = eclass_id {
@@ -61,11 +61,16 @@ pub trait Chomper {
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let mut workload = language.base_atoms();
+        for term in workload.force() {
+            self.add_term(&term, &mut egraph, None);
+        }
         let mut max_eclass_id: usize = 1;
         for size in 1..=max_size {
+            println!("size: {}", size);
             let new_workload = language
                 .produce(&workload)
                 .filter(Filter::MetricEq(Metric::Atoms, size));
+            println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
                 max_eclass_id += 1;
@@ -73,5 +78,61 @@ pub trait Chomper {
             workload = new_workload;
         }
         rules
+    }
+}
+
+/// Helper function which adds quotes around Var atoms in the given S-expression.
+/// Adds some spaces.
+/// See #3 for details on why we need this.
+/// ```
+/// use ruler::enumo::Sexp;
+/// use std::str::FromStr;
+/// use chompy::chomper::format_sexp;
+/// let sexp = Sexp::from_str("(Var x)").unwrap();
+/// assert_eq!(format_sexp(&sexp), "(Var \"x\" ) ");
+/// ```
+pub fn format_sexp(sexp: &Sexp) -> String {
+    let s = sexp.to_string();
+    let s = s.split_whitespace();
+    let mut need_quote = false;
+    let mut result = String::new();
+    for token in s {
+        if need_quote {
+            result.push_str(&format!("\"{}\"", token));
+            need_quote = false;
+        } else {
+            result.push_str(token);
+            if token == "(Var" {
+                need_quote = true;
+            }
+        }
+        result.push(' ');
+    }
+    result
+}
+
+pub mod tests {
+    use tests::MathLang;
+
+    use crate::chomper::Chomper;
+    use crate::language::*;
+
+    #[test]
+    fn test_chomper() {
+        struct MathChomper;
+
+        impl Chomper for MathChomper {
+            type Constant = i64;
+
+            fn get_language(&self) -> Box<dyn ChompyLanguage<Constant = Self::Constant>> {
+                Box::new(MathLang)
+            }
+        }
+
+        let chomper = MathChomper;
+        let rules = chomper.run_chompy(10);
+        for rule in rules {
+            println!("{}", rule);
+        }
     }
 }
