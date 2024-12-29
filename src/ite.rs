@@ -1,8 +1,9 @@
+/// The primitive Egglog construct used to express/evaluate Chompy's conditional
+/// rules.
 use std::{str::FromStr, sync::Arc};
 
 use std::fmt::Debug;
 
-use egglog::SerializeConfig;
 use egglog::{
     ast::{Span, Symbol},
     constraint::{SimpleTypeConstraint, TypeConstraint},
@@ -11,13 +12,14 @@ use egglog::{
 };
 use ruler::enumo::Sexp;
 
+/// Helper trait which helps plug in an arbitrary interpreter for the conditional rule.
 pub trait PredicateInterpreter: Debug + Send + Sync {
     fn interp_cond(&self, sexp: &Sexp) -> bool;
 }
 
 #[derive(Debug)]
 pub struct DummySort {
-    // the language that a condition will operate on
+    // The language that a condition will operate on (see `src/language.rs`).
     pub sort: ArcSort,
     pub interpreter: Arc<dyn PredicateInterpreter>,
 }
@@ -50,14 +52,14 @@ impl Sort for DummySort {
     }
 }
 
+// Within Egglog, (ite pred_expr expr1 expr2) should evaluate to `expr1` if
+// `interp_cond(pred_expr)` is true, otherwise it should evaluate to `expr2`.
 pub struct Ite {
     name: Symbol,
     sort: Arc<dyn Sort>,
     interpreter: Arc<dyn PredicateInterpreter>,
 }
 
-// (ite pred_expr expr expr) -> expr.
-// will evaluate to first expr if pred_expr = true (according to interpreter semantics), else the other expr.
 impl PrimitiveLike for Ite {
     fn name(&self) -> Symbol {
         self.name
@@ -82,29 +84,18 @@ impl PrimitiveLike for Ite {
         values: &[egglog::Value],
         egraph: Option<&mut egglog::EGraph>,
     ) -> Option<egglog::Value> {
-        println!("hi from the ite apply function");
         let egraph = egraph.unwrap();
-        let serialized = egraph.serialize(SerializeConfig::default());
-
-        let nodes = serialized.nodes.len();
-
-        println!("nodes: {}", nodes);
-
+        // This is really expensive -- an e-graph extraction *per* application isn't ideal.
+        // See #49.
         let sexp = Sexp::from_str(&egraph.extract_value_to_string(values[0])).unwrap();
-
-        println!("ite - interpreting: {}", sexp);
-
-        let res = if self.interpreter.interp_cond(&sexp) {
+        if self.interpreter.interp_cond(&sexp) {
             Some(values[1])
         } else {
             Some(values[2])
-        };
-        println!("bye from the ite apply function");
-        res
+        }
     }
 }
 
-// idk why clippy complains about the two use statements below.
 #[allow(unused_imports)]
 pub mod tests {
     use super::*;

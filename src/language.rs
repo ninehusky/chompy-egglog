@@ -1,7 +1,10 @@
 use core::str;
 use std::fmt::Display;
 
-use ruler::{enumo::Sexp, HashMap};
+use ruler::{
+    enumo::{Sexp, Workload},
+    HashMap,
+};
 
 pub type Constant<L> = <L as ChompyLanguage>::Constant;
 pub type CVec<L> = Vec<Option<Constant<L>>>;
@@ -31,6 +34,37 @@ pub trait ChompyLanguage {
     /// then this function should return `vec![vec![], vec!["abs".to_string()],
     /// vec!["add".to_string()]]`.
     fn get_funcs(&self) -> Vec<Vec<String>>;
+
+    /// Returns a new workload that is the result of applying all
+    /// functions to the `old_workload`.
+    fn produce(&self, old_workload: &Workload) -> Workload {
+        let mut result_workload = Workload::empty();
+        let funcs = self.get_funcs();
+        for arity in 0..funcs.len() {
+            let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
+            let funcs = Workload::new(funcs[arity].clone());
+
+            result_workload = Workload::append(
+                result_workload,
+                Workload::new(&[sketch.to_string()])
+                    .plug("FUNC", &funcs)
+                    .plug("EXPR", old_workload),
+            );
+        }
+        result_workload
+    }
+
+    /// Returns the base set of atoms in the language.
+    fn base_atoms(&self) -> Workload {
+        let mut atoms = vec![];
+        for var in self.get_vars() {
+            atoms.push(self.make_var(&var).to_string());
+        }
+        for val in self.get_vals() {
+            atoms.push(self.make_val(val).to_string());
+        }
+        Workload::new(atoms)
+    }
 
     /// Constructs a variable in the language with the given id.
     fn make_var(&self, id: &str) -> Sexp {
@@ -97,6 +131,7 @@ pub trait ChompyLanguage {
     }
 }
 
+#[allow(unused_imports)]
 pub mod tests {
     use crate::language::{CVec, ChompyLanguage, Constant};
     use egglog::{sort::EqSort, EGraph};
@@ -125,7 +160,7 @@ pub mod tests {
             vec![1, 2, 3]
         }
 
-        fn eval(&self, sexp: &Sexp, env: &ruler::HashMap<String, CVec<Self>>) -> CVec<Self> {
+        fn eval(&self, _sexp: &Sexp, _env: &ruler::HashMap<String, CVec<Self>>) -> CVec<Self> {
             todo!()
         }
 

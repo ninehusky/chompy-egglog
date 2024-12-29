@@ -10,6 +10,7 @@ use std::str::FromStr;
 use log::info;
 use ruler::enumo::{Sexp, Workload};
 
+pub mod chomper;
 pub mod ite;
 pub mod language;
 pub mod utils;
