@@ -60,22 +60,28 @@ pub trait Chomper {
         let mut egraph = self.get_initial_egraph();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
-        let mut workload = language.base_atoms();
-        for term in workload.force() {
+        let atoms = language.base_atoms();
+        for term in atoms.force() {
             self.add_term(&term, &mut egraph, None);
         }
+        let mut old_workload = atoms.clone();
         let mut max_eclass_id: usize = 1;
         for size in 1..=max_size {
             println!("size: {}", size);
-            let new_workload = language
-                .produce(&workload)
-                .filter(Filter::MetricEq(Metric::Atoms, size));
+            let new_workload = atoms.clone().append(
+                language
+                    .produce(&old_workload.clone())
+                    .filter(Filter::MetricEq(Metric::Atoms, size)),
+            );
             println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
+                println!("term: {}", term);
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
                 max_eclass_id += 1;
             }
-            workload = new_workload;
+            if !new_workload.force().is_empty() {
+                old_workload = new_workload;
+            }
         }
         rules
     }
@@ -112,7 +118,7 @@ pub fn format_sexp(sexp: &Sexp) -> String {
 }
 
 pub mod tests {
-    use tests::MathLang;
+    use crate::language::MathLang;
 
     use crate::chomper::Chomper;
     use crate::language::*;
@@ -125,7 +131,7 @@ pub mod tests {
             type Constant = i64;
 
             fn get_language(&self) -> Box<dyn ChompyLanguage<Constant = Self::Constant>> {
-                Box::new(MathLang)
+                Box::new(MathLang::Var("dummy".to_string()))
             }
         }
 

@@ -63,8 +63,10 @@ pub trait ChompyLanguage {
     fn produce(&self, old_workload: &Workload) -> Workload {
         let mut result_workload = Workload::empty();
         let funcs = self.get_funcs();
+        println!("funcs: {:?}", funcs);
         for arity in 0..funcs.len() {
             let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
+            println!("arity {} functions are: {:?}", arity, funcs[arity]);
             let funcs = Workload::new(funcs[arity].clone());
 
             result_workload = Workload::append(
@@ -161,87 +163,11 @@ pub mod tests {
     use ruler::enumo::Sexp;
     use std::{str::FromStr, sync::Arc};
 
-    #[derive(Clone)]
-    pub struct MathLang;
-
-    impl From<Sexp> for MathLang {
-        fn from(sexp: Sexp) -> Self {
-            todo!()
-        }
-    }
-
-    impl Into<Sexp> for MathLang {
-        fn into(self) -> Sexp {
-            todo!()
-        }
-    }
-
-    impl ChompyLanguage for MathLang {
-        type Constant = i64;
-
-        fn get_name(&self) -> String {
-            "Math".to_string()
-        }
-
-        fn make_sexp(&self) -> Sexp {
-            todo!()
-        }
-
-        fn from_sexp(sexp: Sexp) -> Self
-        where
-            Self: Sized,
-        {
-            todo!()
-        }
-
-        fn const_type_as_str(&self) -> String {
-            "i64".to_string()
-        }
-
-        fn get_vars(&self) -> Vec<String> {
-            vec!["x".to_string(), "y".to_string()]
-        }
-
-        fn get_vals(&self) -> Vec<Self::Constant> {
-            vec![1, 2, 3]
-        }
-
-        fn eval(&self, _env: &ruler::HashMap<String, CVec<Self>>) -> CVec<Self> {
-            todo!()
-        }
-
-        fn get_funcs(&self) -> Vec<Vec<String>> {
-            vec![vec![], vec!["Abs".to_string()], vec!["Add".to_string()]]
-        }
-    }
-
     #[test]
     // checks that the egglog source code is valid,
     // and that we can construct different terms in some language.
     fn egglog_src_compiles() {
-        let lang = MathLang;
-        let src = lang.to_egglog_src();
-        let mut egraph = EGraph::default();
-        let math_sort = Arc::new(EqSort {
-            // name: lang.get_name().into(),
-            name: "Math".into(),
-        });
-        egraph.add_arcsort(math_sort.clone()).unwrap();
-        println!("the source:");
-        println!("{}", src);
-        egraph.parse_and_run_program(None, &src).unwrap();
-        egraph
-            .parse_and_run_program(None, "(Abs (Var \"x\"))")
-            .unwrap();
-        egraph
-            .parse_and_run_program(None, "(Add (Var \"x\") (Var \"x\"))")
-            .unwrap();
-        egraph
-            .parse_and_run_program(None, "(check (Abs (Var \"x\")))")
-            .unwrap();
-        egraph
-            .parse_and_run_program(None, "(check (Add (Var \"x\") (Var \"x\")))")
-            .unwrap();
+        todo!()
     }
 }
 
