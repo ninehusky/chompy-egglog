@@ -68,8 +68,9 @@ pub trait Chomper {
             format!(
                 r#"
                 (run-schedule
-                    (run non-cond-rewrites {limit})
-                    (run cond-rewrites {limit}))
+                    (repeat {limit}
+                        (run non-cond-rewrites)
+                        (run cond-rewrites)))
                 "#
             )
             .to_string()
@@ -112,6 +113,7 @@ pub trait Chomper {
     fn cvec_match(
         &self,
         egraph: &mut EGraph,
+        predicate_map: &HashMap<Vec<bool>, Vec<Sexp>>,
         env: &HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>,
     ) -> Vec<Rule> {
         let eclass_term_map = self.get_eclass_term_map(egraph);
@@ -131,6 +133,21 @@ pub trait Chomper {
                         lhs: term1.clone(),
                         rhs: term2.clone(),
                     });
+                } else {
+                    let mask = cvec1
+                        .iter()
+                        .zip(cvec2.iter())
+                        .map(|(a, b)| a == b)
+                        .collect::<Vec<bool>>();
+                    if let Some(preds) = predicate_map.get(&mask) {
+                        for pred in preds {
+                            candidate_rules.push(Rule {
+                                condition: Some(pred.clone()),
+                                lhs: term1.clone(),
+                                rhs: term2.clone(),
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -142,8 +159,23 @@ pub trait Chomper {
         &self,
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
-    fn rule_is_derivable(&self, ruleset: &Vec<Rule>, rule: &Rule) -> bool {
-        todo!()
+    fn rule_is_derivable(&self, initial_egraph: &EGraph, ruleset: &Vec<Rule>, rule: &Rule) -> bool {
+        // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
+        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
+        const MAX_DERIVABILITY_ITERATIONS: usize = 7;
+        for (lhs, rhs) in terms {
+            let mut egraph = initial_egraph.clone();
+            self.add_term(&lhs, &mut egraph, None);
+            self.add_term(&rhs, &mut egraph, None);
+            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+            let l_sexpr = format_sexp(&lhs);
+            let r_sexpr = format_sexp(&rhs);
+            let result = egraph.parse_and_run_program(None, "(check (= {l_sexpr} {r_sexpr}))");
+            if !result.is_ok() {
+                return false;
+            }
+        }
+        true
     }
 
     fn add_rewrite(&self, egraph: &mut EGraph, rule: &Rule) {
@@ -182,6 +214,7 @@ pub trait Chomper {
     fn run_chompy(&self, max_size: usize) -> Vec<Rule> {
         const MAX_ECLASS_ID: usize = 1000;
         let mut egraph = self.get_initial_egraph();
+        let initial_egraph = egraph.clone();
         let env = self.initialize_env();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
@@ -214,16 +247,21 @@ pub trait Chomper {
             self.run_rewrites(&mut egraph, None);
             println!("i'm done running rewrites");
 
-            let rules_at_size = self.cvec_match(&mut egraph, &env);
-            for rule in &rules_at_size[..] {
+            // TODO: fix mii.
+            let candidates = self.cvec_match(&mut egraph, &Default::default(), &env);
+            let mut rules_at_size: Vec<Rule> = vec![];
+            for rule in &candidates[..] {
                 if language.validate_rule(&rule) == ValidationResult::Valid
-                    && !self.rule_is_derivable(&rules, &rule)
+                    && !self.rule_is_derivable(&initial_egraph, &rules, &rule)
                 {
-                    rules.push(rule.clone());
+                    rules_at_size.push(rule.clone());
                     self.add_rewrite(&mut egraph, rule);
                 }
             }
-            println!("rules at size {}: {:?}", size, rules_at_size);
+            println!("rules at size {}:", size);
+            for rule in &rules_at_size {
+                println!("{}", rule);
+            }
         }
         rules
     }
@@ -265,12 +303,35 @@ pub mod tests {
     use crate::chomper::Chomper;
     use crate::language::*;
 
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
+
     #[test]
     fn test_chomper() {
         struct MathChomper;
 
         impl Chomper for MathChomper {
             type Constant = i64;
+
+            fn initialize_env(
+                &self,
+            ) -> ruler::HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>
+            {
+                let mut env = ruler::HashMap::default();
+                // make seedable rng
+                let seed = 0b1001;
+                // TODO: this should be part of the interface for eval?
+                let cvec_len = 10;
+                let mut rng = StdRng::seed_from_u64(seed);
+
+                for var in self.get_language().get_vars() {
+                    let cvec = (0..cvec_len)
+                        .map(|_| Some(rng.gen_range(-10..10)))
+                        .collect::<CVec<MathLang>>();
+                    env.insert(var.clone(), cvec);
+                }
+                env
+            }
 
             fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>> {
                 Box::new(MathLang::Var("dummy".to_string()))

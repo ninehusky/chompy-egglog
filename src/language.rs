@@ -1,12 +1,14 @@
 use core::str;
-use std::{fmt::Display, ops::Neg};
+use std::{collections::HashSet, fmt::Display, ops::Neg};
 
 use ruler::{
     enumo::{Sexp, Workload},
     HashMap,
 };
 
-use crate::chomper;
+use z3::ast::Ast;
+
+use crate::chomper::Rule;
 
 pub type Constant<L> = <L as ChompyLanguage>::Constant;
 pub type CVec<L> = Vec<Option<Constant<L>>>;
@@ -39,12 +41,55 @@ pub trait ChompyLanguage {
 
     fn const_type_as_str(&self) -> String;
 
+    /// Given some rule `(l, r)`, returns a vector of `(l', r')` pairs where `l'` and `r'`
+    /// are `l` and `r` concretized with variables replaced by constants. `l'` must be
+    /// equivalent to `r'`.
+    fn concretize_rule(&self, rule: &Rule) -> Vec<(Sexp, Sexp)>;
+
+    fn generalize_term(&self, cache: &mut HashMap<String, String>, term: &Sexp) -> Sexp {
+        fn letter(i: usize) -> char {
+            (b'a' + (i % 26) as u8) as char
+        }
+
+        if is_var(term) {
+            let var = term.to_string();
+            if let Some(v) = cache.get(&var) {
+                return Sexp::Atom(v.clone());
+            }
+            let v = letter(cache.len());
+            cache.insert(var, v.to_string());
+            return Sexp::Atom(v.to_string());
+        }
+
+        match term {
+            Sexp::Atom(_) => term.clone(),
+            Sexp::List(l) => {
+                let mut new_l: Vec<Sexp> = vec![];
+                for t in l {
+                    new_l.push(self.generalize_term(cache, t));
+                }
+                Sexp::List(new_l)
+            }
+        }
+    }
+
+    fn generalize_rule(&self, rule: &Rule) -> Rule {
+        let mut cache = Default::default();
+        let l = self.generalize_term(&mut cache, &rule.lhs);
+        let r = self.generalize_term(&mut cache, &rule.rhs);
+        Rule {
+            lhs: l,
+            rhs: r,
+            condition: rule.condition.clone(),
+        }
+    }
+
     /// Determines whether the given rule is valid in the language.
     /// If this function returns `ValidationResult::Valid`, then for a non-conditional rule `l ~>
     /// r`, `l = r` in the language.
     /// For a conditional rule `if c then l ~> r`, if `c` is true in the language, then `l = r`,
     /// i.e., `c -> l = r`.
-    fn validate_rule(&self, rule: &chomper::Rule) -> ValidationResult;
+    fn validate_rule(&self, rule: &Rule) -> ValidationResult;
 
     /// Returns a list of list of functions of this language. The ith element of the outer list is a list of functions
     /// with arity i.
@@ -166,6 +211,21 @@ pub trait ChompyLanguage {
     }
 }
 
+fn is_var(sexp: &Sexp) -> bool {
+    match sexp {
+        Sexp::List(l) => {
+            if l.len() != 2 {
+                return false;
+            }
+            if let Sexp::Atom(a) = &l[0] {
+                return a == "Var";
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
 #[allow(unused_imports)]
 pub mod tests {
     use crate::language::{CVec, ChompyLanguage, Constant};
@@ -181,6 +241,7 @@ pub mod tests {
     }
 }
 
+// This is a sample implementation of the ChompyLanguage trait.
 /// A generic language for testing purposes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MathLang {
@@ -246,6 +307,56 @@ impl ChompyLanguage for MathLang {
         "i64".to_string()
     }
 
+    fn validate_rule(&self, rule: &Rule) -> ValidationResult {
+        let mut cfg = z3::Config::new();
+        cfg.set_timeout_msec(1000);
+        let ctx = z3::Context::new(&cfg);
+        let solver = z3::Solver::new(&ctx);
+        let lhs = mathlang_to_z3(&ctx, &MathLang::from(rule.lhs.clone()));
+        let rhs = mathlang_to_z3(&ctx, &MathLang::from(rule.rhs.clone()));
+        if rule.condition.is_some() {
+            let cond = MathLang::from(rule.condition.clone().unwrap());
+            let cond_expr = mathlang_to_z3(&ctx, &cond);
+            let zero = z3::ast::Int::from_i64(&ctx, 0);
+            let cond = z3::ast::Bool::not(&cond_expr._eq(&zero));
+            solver.assert(&z3::ast::Bool::implies(&cond, &lhs._eq(&rhs)).not());
+        } else {
+            solver.assert(&lhs._eq(&rhs).not());
+        }
+        println!("solver result: {:?}", solver.check());
+        match solver.check() {
+            z3::SatResult::Unsat => ValidationResult::Valid,
+            z3::SatResult::Unknown => ValidationResult::Unknown,
+            z3::SatResult::Sat => ValidationResult::Invalid,
+        }
+    }
+
+    fn concretize_rule(&self, rule: &Rule) -> Vec<(Sexp, Sexp)> {
+        // TODO: fix mii so that cond(lhs) holds, and that we don't just use 42 as the default
+        // value.
+
+        let dummy_val = self.make_val(42);
+        fn construct(sexp: &Sexp, default: &Sexp) -> Sexp {
+            match sexp {
+                Sexp::Atom(_) => sexp.clone(),
+                Sexp::List(l) => {
+                    if is_var(sexp) {
+                        return default.clone();
+                    }
+                    let mut new_l: Vec<Sexp> = vec![];
+                    for t in l {
+                        new_l.push(construct(t, default));
+                    }
+                    Sexp::List(new_l)
+                }
+            }
+        }
+
+        let lhs = construct(&MathLang::from(rule.lhs.clone()).make_sexp(), &dummy_val);
+        let rhs = construct(&MathLang::from(rule.rhs.clone()).make_sexp(), &dummy_val);
+        vec![(lhs, rhs)]
+    }
+
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
@@ -294,6 +405,7 @@ impl ChompyLanguage for MathLang {
         }
     }
 
+    // TODO: include CVEC_LEN here
     fn eval(&self, sexp: &Sexp, env: &HashMap<String, CVec<Self>>) -> CVec<Self> {
         let term = MathLang::from(sexp.clone());
         match term {
@@ -311,31 +423,59 @@ impl ChompyLanguage for MathLang {
                     .map(|x| if let Some(x) = x { Some(x.neg()) } else { None })
                     .collect()
             }
-            MathLang::Add(e1, e2)
-            | MathLang::Sub(e1, e2)
-            | MathLang::Mul(e1, e2)
-            | MathLang::Div(e1, e2) => {
+            MathLang::Add(ref e1, ref e2)
+            | MathLang::Sub(ref e1, ref e2)
+            | MathLang::Mul(ref e1, ref e2)
+            | MathLang::Div(ref e1, ref e2) => {
                 let e1 = self.eval(&e1.make_sexp(), env);
                 let e2 = self.eval(&e2.make_sexp(), env);
-                let f = |(x, y): (Option<Self::Constant>, Option<Self::Constant>)| {
-                    if x.is_none() || y.is_none() {
-                        return None;
-                    }
-                    let x = x.unwrap();
-                    let y = y.unwrap();
-                    match self {
-                        MathLang::Add(_, _) => x.checked_add(y),
-                        MathLang::Sub(_, _) => x.checked_sub(y),
-                        MathLang::Mul(_, _) => x.checked_mul(y),
-                        MathLang::Div(_, _) => x.checked_div(y),
-                        _ => unreachable!(),
-                    }
+                let f = match term {
+                    MathLang::Add(_, _) => i64::checked_add,
+                    MathLang::Sub(_, _) => i64::checked_sub,
+                    MathLang::Mul(_, _) => i64::checked_mul,
+                    MathLang::Div(_, _) => i64::checked_div,
+                    _ => unreachable!(),
                 };
                 e1.into_iter()
                     .zip(e2.into_iter())
-                    .map(|(x, y)| f((x, y)))
+                    .map(|(x, y)| {
+                        if x.is_none() || y.is_none() {
+                            return None;
+                        }
+                        let x = x.unwrap();
+                        let y = y.unwrap();
+                        f(x, y)
+                    })
                     .collect()
             }
         }
+    }
+}
+
+/// Converts the given `MathLang` term to a `z3::ast::Int`. This function is useful for
+/// validating rules in the `MathLang` language.
+fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::Int<'a> {
+    match math_lang {
+        MathLang::Const(c) => z3::ast::Int::from_i64(ctx, *c),
+        MathLang::Var(v) => z3::ast::Int::new_const(ctx, v.to_string()),
+        MathLang::Abs(e) => {
+            let result = mathlang_to_z3(ctx, e);
+            z3::ast::Bool::ite(
+                &z3::ast::Int::ge(&result, &z3::ast::Int::from_i64(ctx, 0)),
+                &result,
+                &result.unary_minus(),
+            )
+        }
+        MathLang::Neg(e) => mathlang_to_z3(ctx, e).unary_minus(),
+        MathLang::Add(e1, e2) => {
+            z3::ast::Int::add(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+        }
+        MathLang::Sub(e1, e2) => {
+            z3::ast::Int::sub(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+        }
+        MathLang::Mul(e1, e2) => {
+            z3::ast::Int::mul(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+        }
+        MathLang::Div(e1, e2) => mathlang_to_z3(ctx, e1).div(&mathlang_to_z3(ctx, e2)),
     }
 }
