@@ -323,7 +323,6 @@ impl ChompyLanguage for MathLang {
         } else {
             solver.assert(&lhs._eq(&rhs).not());
         }
-        println!("solver result: {:?}", solver.check());
         match solver.check() {
             z3::SatResult::Unsat => ValidationResult::Valid,
             z3::SatResult::Unknown => ValidationResult::Unknown,

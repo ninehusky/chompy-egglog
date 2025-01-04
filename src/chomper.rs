@@ -128,10 +128,18 @@ pub trait Chomper {
                 let term2 = eclass_term_map.get(ec2).unwrap();
                 let cvec2 = self.get_language().eval(&term2, &env);
                 if cvec1 == cvec2 {
+                    // we add (l ~> r) and (r ~> l) as candidate rules, because
+                    // we don't know which ordering is "sound" according to
+                    // variable binding -- see `all_variables_bound`.
                     candidate_rules.push(Rule {
                         condition: None,
                         lhs: term1.clone(),
                         rhs: term2.clone(),
+                    });
+                    candidate_rules.push(Rule {
+                        condition: None,
+                        lhs: term2.clone(),
+                        rhs: term1.clone(),
                     });
                 } else {
                     let mask = cvec1
@@ -143,6 +151,11 @@ pub trait Chomper {
                         for pred in preds {
                             candidate_rules.push(Rule {
                                 condition: Some(pred.clone()),
+                                lhs: term1.clone(),
+                                rhs: term2.clone(),
+                            });
+                            candidate_rules.push(Rule {
+                                condition: None,
                                 lhs: term1.clone(),
                                 rhs: term2.clone(),
                             });
@@ -163,18 +176,24 @@ pub trait Chomper {
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
         const MAX_DERIVABILITY_ITERATIONS: usize = 7;
+        let mut egraph = initial_egraph.clone();
+        for rule in ruleset {
+            self.add_rewrite(&mut egraph, rule);
+        }
         for (lhs, rhs) in terms {
-            let mut egraph = initial_egraph.clone();
+            let mut egraph = egraph.clone();
             self.add_term(&lhs, &mut egraph, None);
             self.add_term(&rhs, &mut egraph, None);
             self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
             let l_sexpr = format_sexp(&lhs);
             let r_sexpr = format_sexp(&rhs);
-            let result = egraph.parse_and_run_program(None, "(check (= {l_sexpr} {r_sexpr}))");
+            let result =
+                egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
             if !result.is_ok() {
                 return false;
             }
         }
+        println!("it's derivable!");
         true
     }
 
@@ -243,24 +262,28 @@ pub trait Chomper {
             if !new_workload.force().is_empty() {
                 old_workload = new_workload;
             }
-            println!("running rewrites...");
-            self.run_rewrites(&mut egraph, None);
-            println!("i'm done running rewrites");
+            loop {
+                println!("running rewrites...");
+                self.run_rewrites(&mut egraph, None);
+                println!("i'm done running rewrites");
 
-            // TODO: fix mii.
-            let candidates = self.cvec_match(&mut egraph, &Default::default(), &env);
-            let mut rules_at_size: Vec<Rule> = vec![];
-            for rule in &candidates[..] {
-                if language.validate_rule(&rule) == ValidationResult::Valid
-                    && !self.rule_is_derivable(&initial_egraph, &rules, &rule)
-                {
-                    rules_at_size.push(rule.clone());
-                    self.add_rewrite(&mut egraph, rule);
+                // TODO: fix mii by adding in predicate map.
+                let candidates = self.cvec_match(&mut egraph, &Default::default(), &env);
+                if candidates.is_empty() {
+                    break;
                 }
-            }
-            println!("rules at size {}:", size);
-            for rule in &rules_at_size {
-                println!("{}", rule);
+                for rule in candidates[..]
+                    .iter()
+                    .filter(|rule| all_variables_bound(rule))
+                {
+                    if language.validate_rule(&rule) == ValidationResult::Valid
+                        && !self.rule_is_derivable(&initial_egraph, &rules, &rule)
+                    {
+                        println!("{}", rule);
+                        rules.push(rule.clone());
+                        self.add_rewrite(&mut egraph, rule);
+                    }
+                }
             }
         }
         rules
@@ -295,6 +318,41 @@ pub fn format_sexp(sexp: &Sexp) -> String {
         result.push(' ');
     }
     result
+}
+
+// A rule is "good" if the variables on the right hand side are all "bound" by the left hand
+// side.
+// A conditional rule is "good" if the above is met, and the condition only refers to variables bound by the left hand
+// side.
+// TODO: test mii
+fn all_variables_bound(rule: &Rule) -> bool {
+    fn get_vars(sexp: &Sexp) -> Vec<String> {
+        match sexp {
+            Sexp::Atom(_) => vec![],
+            Sexp::List(l) => {
+                if let Sexp::Atom(op) = &l[0] {
+                    match op.as_str() {
+                        "Var" => vec![l[1].to_string()],
+                        _ => l.iter().flat_map(|x| get_vars(x)).collect(),
+                    }
+                } else {
+                    panic!("Unexpected list operator: {:?}", l[0]);
+                }
+            }
+        }
+    }
+
+    let lhs_vars = get_vars(&rule.lhs);
+    let rhs_vars = get_vars(&rule.rhs);
+    let cond_vars = match &rule.condition {
+        None => vec![],
+        Some(cond) => get_vars(cond),
+    };
+    // rhs_vars union cond_vars must be a subset of lhs_vars.
+    rhs_vars
+        .iter()
+        .chain(cond_vars.iter())
+        .all(|var| lhs_vars.contains(var))
 }
 
 pub mod tests {
