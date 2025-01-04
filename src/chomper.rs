@@ -5,7 +5,7 @@ use egglog::{sort::EqSort, EGraph};
 use log::info;
 use ruler::{
     enumo::{Filter, Metric, Sexp},
-    HashMap,
+    HashMap, HashSet,
 };
 
 const UNIVERSAL_RELATION: &str = "universe";
@@ -184,16 +184,18 @@ pub trait Chomper {
             let mut egraph = egraph.clone();
             self.add_term(&lhs, &mut egraph, None);
             self.add_term(&rhs, &mut egraph, None);
-            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+            // self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
             let l_sexpr = format_sexp(&lhs);
             let r_sexpr = format_sexp(&rhs);
+            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
             let result =
                 egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
             if !result.is_ok() {
+                // the existing ruleset was unable to conclude that lhs = rhs,
+                // so the rule is not derivable from the existing ruleset.
                 return false;
             }
         }
-        println!("it's derivable!");
         true
     }
 
@@ -205,9 +207,8 @@ pub trait Chomper {
                 format!(
                     r#"
                     (rule
-                      ({lhs})
-                      (({UNIVERSAL_RELATION} {lhs})
-                       ({UNIVERSAL_RELATION} {rhs})
+                      (({UNIVERSAL_RELATION} {lhs}))
+                      (({UNIVERSAL_RELATION} {rhs})
                        (union {lhs} {rhs}))
                       :ruleset non-cond-rewrites)
                     "#
@@ -231,7 +232,7 @@ pub trait Chomper {
     }
 
     fn run_chompy(&self, max_size: usize) -> Vec<Rule> {
-        const MAX_ECLASS_ID: usize = 1000;
+        const MAX_ECLASS_ID: usize = 3000;
         let mut egraph = self.get_initial_egraph();
         let initial_egraph = egraph.clone();
         let env = self.initialize_env();
@@ -244,15 +245,14 @@ pub trait Chomper {
         let mut old_workload = atoms.clone();
         let mut max_eclass_id: usize = 1;
         for size in 1..=max_size {
-            info!("size: {}", size);
+            println!("size: {}", size);
             let new_workload = atoms.clone().append(
                 language
                     .produce(&old_workload.clone())
                     .filter(Filter::MetricEq(Metric::Atoms, size)),
             );
-            info!("workload len: {}", new_workload.force().len());
+            println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
-                info!("term: {}", term);
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
                 max_eclass_id += 1;
                 if max_eclass_id > MAX_ECLASS_ID {
@@ -262,26 +262,40 @@ pub trait Chomper {
             if !new_workload.force().is_empty() {
                 old_workload = new_workload;
             }
+            let mut seen_rules: HashSet<String> = Default::default();
             loop {
                 println!("running rewrites...");
                 self.run_rewrites(&mut egraph, None);
                 println!("i'm done running rewrites");
 
                 // TODO: fix mii by adding in predicate map.
-                let candidates = self.cvec_match(&mut egraph, &Default::default(), &env);
-                if candidates.is_empty() {
+                let candidates = self
+                    .cvec_match(&mut egraph, &Default::default(), &env)
+                    .into_iter()
+                    .filter(|rule| all_variables_bound(rule))
+                    .collect::<Vec<Rule>>();
+                if candidates.is_empty()
+                    || candidates
+                        .iter()
+                        .all(|rule| seen_rules.contains(&rule.to_string()))
+                {
                     break;
                 }
-                for rule in candidates[..]
-                    .iter()
-                    .filter(|rule| all_variables_bound(rule))
-                {
+                seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
+                for rule in &candidates[..] {
+                    info!("candidate rule: {}", rule);
+                    info!("validation result: {:?}", language.validate_rule(&rule));
+                    info!(
+                        "is derivable? {}",
+                        self.rule_is_derivable(&initial_egraph, &rules, &rule)
+                    );
                     if language.validate_rule(&rule) == ValidationResult::Valid
                         && !self.rule_is_derivable(&initial_egraph, &rules, &rule)
                     {
-                        println!("{}", rule);
+                        let rule = language.generalize_rule(&rule.clone());
+                        println!("rule: {}", rule);
                         rules.push(rule.clone());
-                        self.add_rewrite(&mut egraph, rule);
+                        self.add_rewrite(&mut egraph, &rule);
                     }
                 }
             }
@@ -343,6 +357,12 @@ fn all_variables_bound(rule: &Rule) -> bool {
     }
 
     let lhs_vars = get_vars(&rule.lhs);
+
+    // we don't want to allow rules with no variables on the left hand side.
+    if lhs_vars.is_empty() {
+        return false;
+    }
+
     let rhs_vars = get_vars(&rule.rhs);
     let cond_vars = match &rule.condition {
         None => vec![],
