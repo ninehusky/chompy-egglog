@@ -522,52 +522,52 @@ fn sexp_to_z3<'a>(ctx: &'a z3::Context, sexp: &Sexp) -> z3::ast::Int<'a> {
     }
 }
 
-pub mod tests {
-    use std::sync::Arc;
-
-    use chompy::{init_egraph, ite::DummySort};
-    use egglog::{sort::EqSort, EGraph};
-
-    use super::*;
-
-    // not running for now because is expensive.
-    // #[test]
-    fn run_halide_chomper() {
-        let env = HalideChomper::make_env(&mut StdRng::seed_from_u64(0));
-        let mut chomper = HalideChomper {
-            env,
-            memo: Default::default(),
-        };
-        let mut egraph = EGraph::default();
-
-        #[derive(Debug)]
-        struct HalidePredicateInterpreter {
-            chomper: HalideChomper,
-        }
-
-        impl chompy::ite::PredicateInterpreter for HalidePredicateInterpreter {
-            fn interp_cond(&self, sexp: &Sexp) -> bool {
-                let cvec = self.chomper.clone().interpret_term(sexp);
-                cvec.iter().all(|x| x.is_some() && x.unwrap() != 0)
-            }
-        }
-
-        // TODO: this is only safe if we make sure the chomper doesn't actually store any state.
-        let pred_interpreter = HalidePredicateInterpreter {
-            chomper: chomper.clone(),
-        };
-
-        let halide_sort = Arc::new(EqSort {
-            name: "HalideExpr".into(),
-        });
-        let dummy_sort = Arc::new(DummySort {
-            sort: halide_sort.clone(),
-            interpreter: Arc::new(pred_interpreter),
-        });
-        egraph.add_arcsort(halide_sort.clone()).unwrap();
-        egraph.add_arcsort(dummy_sort).unwrap();
-        init_egraph!(egraph, "../egglog/halide.egg");
-
-        chomper.run_chompy(&mut egraph);
-    }
-}
+// pub mod tests {
+//     use std::sync::Arc;
+//
+//     use chompy::{init_egraph, ite::DummySort};
+//     use egglog::{sort::EqSort, EGraph};
+//
+//     use super::*;
+//
+//     // not running for now because is expensive.
+//     // #[test]
+//     fn run_halide_chomper() {
+//         let env = HalideChomper::make_env(&mut StdRng::seed_from_u64(0));
+//         let mut chomper = HalideChomper {
+//             env,
+//             memo: Default::default(),
+//         };
+//         let mut egraph = EGraph::default();
+//
+//         #[derive(Debug)]
+//         struct HalidePredicateInterpreter {
+//             chomper: HalideChomper,
+//         }
+//
+//         impl chompy::ite::PredicateInterpreter for HalidePredicateInterpreter {
+//             fn interp_cond(&self, sexp: &Sexp) -> bool {
+//                 let cvec = self.chomper.clone().interpret_term(sexp);
+//                 cvec.iter().all(|x| x.is_some() && x.unwrap() != 0)
+//             }
+//         }
+//
+//         // TODO: this is only safe if we make sure the chomper doesn't actually store any state.
+//         let pred_interpreter = HalidePredicateInterpreter {
+//             chomper: chomper.clone(),
+//         };
+//
+//         let halide_sort = Arc::new(EqSort {
+//             name: "HalideExpr".into(),
+//         });
+//         let dummy_sort = Arc::new(DummySort {
+//             sort: halide_sort.clone(),
+//             interpreter: Arc::new(pred_interpreter),
+//         });
+//         egraph.add_arcsort(halide_sort.clone()).unwrap();
+//         egraph.add_arcsort(dummy_sort).unwrap();
+//         init_egraph!(egraph, "../egglog/halide.egg");
+//
+//         chomper.run_chompy(&mut egraph);
+//     }
+// }

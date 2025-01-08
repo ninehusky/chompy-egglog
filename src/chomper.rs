@@ -1,6 +1,9 @@
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
-use crate::language::{CVec, ChompyLanguage, MathLang, ValidationResult};
+use crate::{
+    ite::{DummySort, PredicateInterpreter},
+    language::{CVec, ChompyLanguage, MathLang, ValidationResult},
+};
 use egglog::{sort::EqSort, EGraph};
 use log::info;
 use ruler::{
@@ -32,6 +35,8 @@ pub trait Chomper {
     type Constant: Display + Clone + PartialEq;
     fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>>;
 
+    fn make_pred_interpreter() -> impl PredicateInterpreter + Send + Sync + 'static;
+
     /// Returns the initial e-graph for the chomper, i.e.,
     /// the e-graph with the initial language definitions given from
     /// `get_language()`.
@@ -40,7 +45,16 @@ pub trait Chomper {
         let sort = Arc::new(EqSort {
             name: self.get_language().get_name().into(),
         });
-        egraph.add_arcsort(sort).unwrap();
+
+        let interp: Arc<dyn PredicateInterpreter> = Arc::new(Self::make_pred_interpreter());
+
+        let dummy_sort = Arc::new(DummySort {
+            sort: sort.clone(),
+            interp,
+        });
+
+        egraph.add_arcsort(dummy_sort.clone()).unwrap();
+        egraph.add_arcsort(sort.clone()).unwrap();
         egraph
             .parse_and_run_program(None, &self.get_language().to_egglog_src())
             .unwrap();
@@ -147,6 +161,11 @@ pub trait Chomper {
                         .zip(cvec2.iter())
                         .map(|(a, b)| a == b)
                         .collect::<Vec<bool>>();
+                    // if they never match, we can't generate a rule.
+                    if mask.iter().all(|x| !x) {
+                        continue;
+                    }
+
                     if let Some(preds) = predicate_map.get(&mask) {
                         for pred in preds {
                             candidate_rules.push(Rule {
@@ -173,9 +192,11 @@ pub trait Chomper {
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
     fn rule_is_derivable(&self, initial_egraph: &EGraph, ruleset: &Vec<Rule>, rule: &Rule) -> bool {
+        info!("assessing rule: {}", rule);
+
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
-        const MAX_DERIVABILITY_ITERATIONS: usize = 7;
+        const MAX_DERIVABILITY_ITERATIONS: usize = 10;
         let mut egraph = initial_egraph.clone();
         for rule in ruleset {
             self.add_rewrite(&mut egraph, rule);
@@ -184,10 +205,10 @@ pub trait Chomper {
             let mut egraph = egraph.clone();
             self.add_term(&lhs, &mut egraph, None);
             self.add_term(&rhs, &mut egraph, None);
-            // self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
             let l_sexpr = format_sexp(&lhs);
             let r_sexpr = format_sexp(&rhs);
-            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+            // self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+            self.run_rewrites(&mut egraph, None);
             let result =
                 egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
             if !result.is_ok() {
@@ -231,14 +252,42 @@ pub trait Chomper {
         egraph.parse_and_run_program(None, &prog).unwrap();
     }
 
+    fn get_pvecs(
+        &self,
+        env: &HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>,
+    ) -> HashMap<Vec<bool>, Vec<Sexp>> {
+        let predicates = self.get_language().get_predicates();
+        let mut result: HashMap<Vec<bool>, Vec<Sexp>> = Default::default();
+        for p in predicates.force() {
+            let vec = self
+                .get_language()
+                .eval(&p, &env)
+                .into_iter()
+                .map(|val| {
+                    if val.is_none() {
+                        // TODO: check if this idea is sound: if a condition evaluates to "none", then we default to
+                        // saying that the condition is false.
+                        false
+                    } else {
+                        self.get_language().const_to_bool(val.unwrap())
+                    }
+                })
+                .collect();
+            result.entry(vec).or_default().push(p);
+        }
+        result
+    }
+
     fn run_chompy(&self, max_size: usize) -> Vec<Rule> {
-        const MAX_ECLASS_ID: usize = 3000;
+        const MAX_ECLASS_ID: usize = 6000;
         let mut egraph = self.get_initial_egraph();
+
         let initial_egraph = egraph.clone();
         let env = self.initialize_env();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
+        let pvecs = self.get_pvecs(&env);
         for term in atoms.force() {
             self.add_term(&term, &mut egraph, None);
         }
@@ -270,7 +319,7 @@ pub trait Chomper {
 
                 // TODO: fix mii by adding in predicate map.
                 let candidates = self
-                    .cvec_match(&mut egraph, &Default::default(), &env)
+                    .cvec_match(&mut egraph, &pvecs, &env)
                     .into_iter()
                     .filter(|rule| all_variables_bound(rule))
                     .collect::<Vec<Rule>>();
@@ -376,6 +425,7 @@ fn all_variables_bound(rule: &Rule) -> bool {
 }
 
 pub mod tests {
+    use crate::ite::PredicateInterpreter;
     use crate::language::MathLang;
 
     use crate::chomper::Chomper;
@@ -390,6 +440,21 @@ pub mod tests {
 
         impl Chomper for MathChomper {
             type Constant = i64;
+
+            fn make_pred_interpreter() -> impl crate::ite::PredicateInterpreter {
+                #[derive(Debug)]
+                struct DummyPredicateInterpreter;
+                impl PredicateInterpreter for DummyPredicateInterpreter {
+                    fn interp_cond(&self, sexp: &ruler::enumo::Sexp) -> bool {
+                        let dummy_term = MathLang::Var("dummy".to_string());
+                        match dummy_term.eval(sexp, &Default::default()).get(0).unwrap() {
+                            Some(val) => *val > 0,
+                            None => false,
+                        }
+                    }
+                }
+                DummyPredicateInterpreter
+            }
 
             fn initialize_env(
                 &self,

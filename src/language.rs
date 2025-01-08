@@ -1,10 +1,14 @@
 use core::str;
 use std::{collections::HashSet, fmt::Display, ops::Neg};
 
+use rand::rngs::StdRng;
+use rand::Rng;
 use ruler::{
     enumo::{Sexp, Workload},
     HashMap,
 };
+
+use log::info;
 
 use z3::ast::Ast;
 
@@ -176,6 +180,9 @@ pub trait ChompyLanguage {
         ])
     }
 
+    /// Converts a `Constant` in the language to a `bool`.
+    fn const_to_bool(&self, val: Constant<Self>) -> bool;
+
     /// Returns the Egglog source code which defines this language.
     fn to_egglog_src(&self) -> String {
         let name = self.get_name();
@@ -224,6 +231,15 @@ pub trait ChompyLanguage {
     }
 }
 
+/// Helper function which returns whether the given
+/// s-expression is a variable.
+/// ```
+/// use ruler::enumo::Sexp;
+/// use std::str::FromStr;
+/// assert!(is_var(Sexp::from_str("(Var blah)")));
+/// assert!(!is_var(Sexp::from_str("(Const blah)")));
+/// assert!(!is_var(Sexp::from_str("(var blah)")));
+/// ```
 fn is_var(sexp: &Sexp) -> bool {
     match sexp {
         Sexp::List(l) => {
@@ -355,34 +371,127 @@ impl ChompyLanguage for MathLang {
     }
 
     fn get_predicates(&self) -> Workload {
-        todo!()
+        // TODO: bit of a hacky way to get around including constants in productions.
+        // once chompy scales a bit better, we should just have
+        // `let atoms = self.base_atoms()`.
+        let atoms: Vec<String> = self
+            .get_vals()
+            .into_iter()
+            .map(|val| self.make_val(val))
+            .into_iter()
+            .chain(self.get_vars().iter().map(|var| self.make_var(&var)))
+            .map(|atom| atom.to_string())
+            .collect();
+
+        Workload::new(&["(BINOP EXPR EXPR)"])
+            .plug("BINOP", &Workload::new(&["Neq", "Gt"]))
+            .plug("EXPR", &Workload::new(atoms))
     }
 
     fn concretize_rule(&self, rule: &Rule) -> Vec<(Sexp, Sexp)> {
-        // TODO: fix mii so that cond(lhs) holds, and that we don't just do the non-conditional
-        // method of leaving variables inside.
-        let dummy_val: Sexp = MathLang::Var("dummy".to_string()).make_sexp();
-
-        fn construct(sexp: &Sexp, default: &Sexp) -> Sexp {
+        fn construct_sexp(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
+            if is_var(sexp) {
+                if let Sexp::List(l) = sexp {
+                    let id = l[1].clone();
+                    return env[&id.to_string()].clone();
+                }
+                panic!();
+            }
             match sexp {
                 Sexp::Atom(_) => sexp.clone(),
                 Sexp::List(l) => {
-                    if is_var(sexp) {
-                        // TODO: fix
-                        return sexp.clone();
-                    }
                     let mut new_l: Vec<Sexp> = vec![];
                     for t in l {
-                        new_l.push(construct(t, default));
+                        new_l.push(construct_sexp(t, env));
                     }
                     Sexp::List(new_l)
                 }
             }
         }
 
-        let lhs = construct(&MathLang::from(rule.lhs.clone()).make_sexp(), &dummy_val);
-        let rhs = construct(&MathLang::from(rule.rhs.clone()).make_sexp(), &dummy_val);
-        vec![(lhs, rhs)]
+        // TODO: fix mii so that cond(lhs) holds, and that we don't just do the non-conditional
+        // method of leaving variables inside.
+        let num_concretized_rules = 10;
+        let vars: HashSet<String> = self.get_vars().into_iter().collect();
+
+        // caches that map variables to their corresponding values (all should be constants for
+        // now).
+        let mut env_caches: Vec<HashMap<String, Sexp>> = vec![];
+
+        let mut concretized_rules: Vec<(Sexp, Sexp)> = vec![];
+        let ctx = z3::Context::new(&z3::Config::new());
+        if let Some(cond) = &rule.condition {
+            // this is trickier. we need to assign values to the variables such that the condition
+            // holds.
+            let one = z3::ast::Int::from_i64(&ctx, 1);
+            for _ in 0..num_concretized_rules {
+                // assert(cond)
+                let mut assertions: Vec<z3::ast::Bool> = vec![];
+                assertions.push(mathlang_to_z3(&ctx, &MathLang::from(cond.clone()))._eq(&one));
+                // push some dummy assertions just to get all variables in scope.
+                for var in &vars {
+                    let const_var = z3::ast::Int::new_const(&ctx, var.clone());
+                    // this assertion will always hold; a model which disproves the assertion
+                    // above will not break this assertion.
+                    assertions.push(const_var._eq(&const_var));
+                }
+                // there should also be one mega assertion which makes sure we don't generate
+                // the same model twice.
+                for env in env_caches.iter() {
+                    for (var, val) in env {
+                        assertions.push(
+                            z3::ast::Int::new_const(&ctx, var.clone())
+                                ._eq(&mathlang_to_z3(&ctx, &MathLang::from(val.clone())))
+                                .not(),
+                        );
+                    }
+                }
+                // now, send this to the solver.
+                let mut cfg = z3::Config::new();
+                cfg.set_timeout_msec(1000);
+                let solver = z3::Solver::new(&ctx);
+                info!("assertions: {:?}", assertions);
+                for assertion in &assertions {
+                    solver.assert(assertion);
+                }
+                if let z3::SatResult::Sat = solver.check() {
+                    let model = solver.get_model().unwrap();
+                    info!("model: {:?}", model.to_string());
+                    let mut env: HashMap<String, Sexp> = HashMap::default();
+                    for var in &vars {
+                        let val = model
+                            .eval(&z3::ast::Int::new_const(&ctx, var.clone()))
+                            .unwrap()
+                            .as_i64()
+                            .unwrap();
+                        env.insert(var.clone(), self.make_val(val));
+                    }
+                    env_caches.push(env.clone());
+                    // TODO: this bottom part isn't right yet; it should replace the variables
+                    // inside lhs, rhs with the constants in `env`.
+                    concretized_rules.push((
+                        construct_sexp(&rule.lhs, &env),
+                        construct_sexp(&rule.rhs, &env),
+                    ));
+                } else {
+                    break;
+                }
+            }
+        } else {
+            let mut rng: StdRng = rand::SeedableRng::seed_from_u64(0xf00d4b0bacafe);
+            for _ in 0..num_concretized_rules {
+                let mut env: HashMap<String, Sexp> = HashMap::default();
+                for v in &vars {
+                    let val = rng.gen_range(-10..10);
+                    env.insert(v.clone(), self.make_val(val));
+                }
+                concretized_rules.push((
+                    construct_sexp(&rule.lhs, &env),
+                    construct_sexp(&rule.rhs, &env),
+                ));
+            }
+        }
+        concretized_rules
     }
 
     fn get_funcs(&self) -> Vec<Vec<String>> {
@@ -394,6 +503,8 @@ impl ChompyLanguage for MathLang {
                 "Sub".to_string(),
                 "Mul".to_string(),
                 "Div".to_string(),
+                "Neq".to_string(),
+                "Gt".to_string(),
             ],
         ]
     }
@@ -443,12 +554,28 @@ impl ChompyLanguage for MathLang {
         }
     }
 
+    fn const_to_bool(&self, val: Constant<Self>) -> bool {
+        if val == 0 {
+            false
+        } else if val == 1 {
+            true
+        } else {
+            panic!()
+        }
+    }
+
     // TODO: include CVEC_LEN here
     fn eval(&self, sexp: &Sexp, env: &HashMap<String, CVec<Self>>) -> CVec<Self> {
         let term = MathLang::from(sexp.clone());
         match term {
             MathLang::Const(c) => vec![Some(c)],
-            MathLang::Var(v) => env[&v].clone(),
+            MathLang::Var(v) => {
+                if let Some(x) = env.get(&v) {
+                    x.clone()
+                } else {
+                    vec![None]
+                }
+            }
             MathLang::Abs(e) => {
                 let e: CVec<Self> = self.eval(&e.make_sexp(), env);
                 e.into_iter()
