@@ -240,7 +240,7 @@ pub trait ChompyLanguage {
 /// assert!(!is_var(Sexp::from_str("(Const blah)")));
 /// assert!(!is_var(Sexp::from_str("(var blah)")));
 /// ```
-fn is_var(sexp: &Sexp) -> bool {
+pub fn is_var(sexp: &Sexp) -> bool {
     match sexp {
         Sexp::List(l) => {
             if l.len() != 2 {

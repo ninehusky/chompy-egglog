@@ -1,8 +1,9 @@
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{
-    ite::{DummySort, PredicateInterpreter},
-    language::{CVec, ChompyLanguage, MathLang, ValidationResult},
+    ite::DummySort,
+    language::{CVec, ChompyLanguage, ValidationResult},
+    PredicateInterpreter,
 };
 use egglog::{sort::EqSort, EGraph};
 use log::info;
@@ -425,8 +426,8 @@ fn all_variables_bound(rule: &Rule) -> bool {
 }
 
 pub mod tests {
-    use crate::ite::PredicateInterpreter;
     use crate::language::MathLang;
+    use crate::PredicateInterpreter;
 
     use crate::chomper::Chomper;
     use crate::language::*;
@@ -441,7 +442,7 @@ pub mod tests {
         impl Chomper for MathChomper {
             type Constant = i64;
 
-            fn make_pred_interpreter() -> impl crate::ite::PredicateInterpreter {
+            fn make_pred_interpreter() -> impl crate::PredicateInterpreter {
                 #[derive(Debug)]
                 struct DummyPredicateInterpreter;
                 impl PredicateInterpreter for DummyPredicateInterpreter {

@@ -12,13 +12,7 @@ use egglog::{
 };
 use ruler::enumo::Sexp;
 
-use crate::chomper::Chomper;
-use crate::language::ChompyLanguage;
-
-/// Helper trait which helps plug in an arbitrary interpreter for the conditional rule.
-pub trait PredicateInterpreter: Debug + Send + Sync {
-    fn interp_cond(&self, sexp: &Sexp) -> bool;
-}
+use crate::PredicateInterpreter;
 
 #[derive(Debug)]
 pub struct DummySort {
