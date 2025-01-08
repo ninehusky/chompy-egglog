@@ -36,7 +36,7 @@ pub trait Chomper {
     type Constant: Display + Clone + PartialEq;
     fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>>;
 
-    fn make_pred_interpreter() -> impl PredicateInterpreter + Send + Sync + 'static;
+    fn make_pred_interpreter() -> impl PredicateInterpreter + 'static;
 
     /// Returns the initial e-graph for the chomper, i.e.,
     /// the e-graph with the initial language definitions given from
@@ -137,11 +137,11 @@ pub trait Chomper {
 
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
-            let term1 = eclass_term_map.get(&ec1).unwrap();
-            let cvec1 = self.get_language().eval(&term1, &env);
+            let term1 = eclass_term_map.get(ec1).unwrap();
+            let cvec1 = self.get_language().eval(term1, env);
             for ec2 in ec_keys.iter().skip(i + 1) {
                 let term2 = eclass_term_map.get(ec2).unwrap();
-                let cvec2 = self.get_language().eval(&term2, &env);
+                let cvec2 = self.get_language().eval(term2, env);
                 if cvec1 == cvec2 {
                     // we add (l ~> r) and (r ~> l) as candidate rules, because
                     // we don't know which ordering is "sound" according to
@@ -208,11 +208,11 @@ pub trait Chomper {
             self.add_term(&rhs, &mut egraph, None);
             let l_sexpr = format_sexp(&lhs);
             let r_sexpr = format_sexp(&rhs);
-            // self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
-            self.run_rewrites(&mut egraph, None);
+            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+            // self.run_rewrites(&mut egraph, None);
             let result =
                 egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
-            if !result.is_ok() {
+            if result.is_err() {
                 // the existing ruleset was unable to conclude that lhs = rhs,
                 // so the rule is not derivable from the existing ruleset.
                 return false;
@@ -237,7 +237,7 @@ pub trait Chomper {
                 )
             }
             Some(cond) => {
-                let cond = format_sexp(&cond);
+                let cond = format_sexp(cond);
                 format!(
                     r#"
                     (rule
@@ -262,15 +262,15 @@ pub trait Chomper {
         for p in predicates.force() {
             let vec = self
                 .get_language()
-                .eval(&p, &env)
+                .eval(&p, env)
                 .into_iter()
                 .map(|val| {
-                    if val.is_none() {
+                    if let Some(val) = val {
                         // TODO: check if this idea is sound: if a condition evaluates to "none", then we default to
                         // saying that the condition is false.
-                        false
+                        self.get_language().const_to_bool(val)
                     } else {
-                        self.get_language().const_to_bool(val.unwrap())
+                        false
                     }
                 })
                 .collect();
@@ -322,7 +322,7 @@ pub trait Chomper {
                 let candidates = self
                     .cvec_match(&mut egraph, &pvecs, &env)
                     .into_iter()
-                    .filter(|rule| all_variables_bound(rule))
+                    .filter(all_variables_bound)
                     .collect::<Vec<Rule>>();
                 if candidates.is_empty()
                     || candidates
@@ -334,13 +334,13 @@ pub trait Chomper {
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 for rule in &candidates[..] {
                     info!("candidate rule: {}", rule);
-                    info!("validation result: {:?}", language.validate_rule(&rule));
+                    info!("validation result: {:?}", language.validate_rule(rule));
                     info!(
                         "is derivable? {}",
-                        self.rule_is_derivable(&initial_egraph, &rules, &rule)
+                        self.rule_is_derivable(&initial_egraph, &rules, rule)
                     );
-                    if language.validate_rule(&rule) == ValidationResult::Valid
-                        && !self.rule_is_derivable(&initial_egraph, &rules, &rule)
+                    if language.validate_rule(rule) == ValidationResult::Valid
+                        && !self.rule_is_derivable(&initial_egraph, &rules, rule)
                     {
                         let rule = language.generalize_rule(&rule.clone());
                         println!("rule: {}", rule);
@@ -397,7 +397,7 @@ fn all_variables_bound(rule: &Rule) -> bool {
                 if let Sexp::Atom(op) = &l[0] {
                     match op.as_str() {
                         "Var" => vec![l[1].to_string()],
-                        _ => l.iter().flat_map(|x| get_vars(x)).collect(),
+                        _ => l.iter().flat_map(get_vars).collect(),
                     }
                 } else {
                     panic!("Unexpected list operator: {:?}", l[0]);
@@ -425,6 +425,7 @@ fn all_variables_bound(rule: &Rule) -> bool {
         .all(|var| lhs_vars.contains(var))
 }
 
+#[allow(unused_imports)]
 pub mod tests {
     use crate::language::MathLang;
     use crate::PredicateInterpreter;

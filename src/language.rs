@@ -192,8 +192,8 @@ pub trait ChompyLanguage {
 
         let funcs = self.get_funcs();
 
-        for arity in 0..funcs.len() {
-            for func in &funcs[arity] {
+        for (arity, funcs) in funcs.iter().enumerate() {
+            for func in funcs {
                 let mut defn = format!("(function {func} (");
                 for _ in 0..arity {
                     defn += format!("{name} ").as_str();
@@ -378,8 +378,7 @@ impl ChompyLanguage for MathLang {
             .get_vals()
             .into_iter()
             .map(|val| self.make_val(val))
-            .into_iter()
-            .chain(self.get_vars().iter().map(|var| self.make_var(&var)))
+            .chain(self.get_vars().iter().map(|var| self.make_var(var)))
             .map(|atom| atom.to_string())
             .collect();
 
@@ -578,15 +577,11 @@ impl ChompyLanguage for MathLang {
             }
             MathLang::Abs(e) => {
                 let e: CVec<Self> = self.eval(&e.make_sexp(), env);
-                e.into_iter()
-                    .map(|x| if let Some(x) = x { Some(x.abs()) } else { None })
-                    .collect()
+                e.into_iter().map(|x| x.map(|x| x.abs())).collect()
             }
             MathLang::Neg(e) => {
                 let e: CVec<Self> = self.eval(&e.make_sexp(), env);
-                e.into_iter()
-                    .map(|x| if let Some(x) = x { Some(x.neg()) } else { None })
-                    .collect()
+                e.into_iter().map(|x| x.map(|x| x.neg())).collect()
             }
             MathLang::Add(ref e1, ref e2)
             | MathLang::Sub(ref e1, ref e2)
@@ -602,7 +597,7 @@ impl ChompyLanguage for MathLang {
                     _ => unreachable!(),
                 };
                 e1.into_iter()
-                    .zip(e2.into_iter())
+                    .zip(e2)
                     .map(|(x, y)| {
                         if x.is_none() || y.is_none() {
                             return None;
@@ -623,7 +618,7 @@ impl ChompyLanguage for MathLang {
                     _ => unreachable!(),
                 };
                 e1.into_iter()
-                    .zip(e2.into_iter())
+                    .zip(e2)
                     .map(|(x, y)| {
                         if x.is_none() || y.is_none() {
                             return None;
@@ -660,13 +655,13 @@ fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::In
         }
         MathLang::Neg(e) => mathlang_to_z3(ctx, e).unary_minus(),
         MathLang::Add(e1, e2) => {
-            z3::ast::Int::add(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+            z3::ast::Int::add(ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
         }
         MathLang::Sub(e1, e2) => {
-            z3::ast::Int::sub(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+            z3::ast::Int::sub(ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
         }
         MathLang::Mul(e1, e2) => {
-            z3::ast::Int::mul(&ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
+            z3::ast::Int::mul(ctx, &[&mathlang_to_z3(ctx, e1), &mathlang_to_z3(ctx, e2)])
         }
         MathLang::Div(e1, e2) => mathlang_to_z3(ctx, e1).div(&mathlang_to_z3(ctx, e2)),
         MathLang::Gt(e1, e2) => z3::ast::Bool::ite(
