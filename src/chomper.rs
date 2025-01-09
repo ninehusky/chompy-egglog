@@ -322,7 +322,6 @@ pub trait Chomper {
                 self.run_rewrites(&mut egraph, None);
                 println!("i'm done running rewrites");
 
-                // TODO: fix mii by adding in predicate map.
                 let candidates = self
                     .cvec_match(&mut egraph, &pvecs, &env)
                     .into_iter()
@@ -337,15 +336,12 @@ pub trait Chomper {
                 }
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 for rule in &candidates[..] {
+                    let valid = language.validate_rule(rule);
+                    let derivable = self.rule_is_derivable(&initial_egraph, &rules, rule);
                     info!("candidate rule: {}", rule);
-                    info!("validation result: {:?}", language.validate_rule(rule));
-                    info!(
-                        "is derivable? {}",
-                        self.rule_is_derivable(&initial_egraph, &rules, rule)
-                    );
-                    if language.validate_rule(rule) == ValidationResult::Valid
-                        && !self.rule_is_derivable(&initial_egraph, &rules, rule)
-                    {
+                    info!("validation result: {:?}", valid);
+                    info!("is derivable? {}", if derivable { "yes" } else { "no" });
+                    if valid == ValidationResult::Valid && !derivable {
                         let rule = language.generalize_rule(&rule.clone());
                         println!("rule: {}", rule);
                         rules.push(rule.clone());
