@@ -28,10 +28,6 @@ Cargo.lock
 *.svg
 *output.txt
 
-# Don't include environment artifacts
-synth-rules.txt
-synth-rules-final.txt
-
 *.json
 
 diary.md
