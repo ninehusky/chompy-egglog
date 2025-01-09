@@ -262,11 +262,18 @@ pub mod tests {
     use ruler::enumo::Sexp;
     use std::{str::FromStr, sync::Arc};
 
+    use super::MathLang;
+
     #[test]
-    // checks that the egglog source code is valid,
-    // and that we can construct different terms in some language.
     fn egglog_src_compiles() {
-        todo!()
+        let lang = MathLang::Var("dummy".to_string());
+        let src = lang.to_egglog_src();
+        let mut egraph = EGraph::default();
+        let sort = Arc::new(EqSort {
+            name: lang.get_name().into(),
+        });
+        egraph.add_arcsort(sort).unwrap();
+        egraph.parse_and_run_program(None, &src).unwrap();
     }
 }
 
