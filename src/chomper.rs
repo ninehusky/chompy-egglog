@@ -441,7 +441,7 @@ impl Chomper for MathChomper {
         impl PredicateInterpreter for DummyPredicateInterpreter {
             fn interp_cond(&self, sexp: &ruler::enumo::Sexp) -> bool {
                 let dummy_term = MathLang::Var("dummy".to_string());
-                match dummy_term.eval(sexp, &Default::default()).get(0).unwrap() {
+                match dummy_term.eval(sexp, &Default::default()).first().unwrap() {
                     Some(val) => *val > 0,
                     None => false,
                 }
