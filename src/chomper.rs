@@ -179,9 +179,9 @@ pub trait Chomper {
                                 rhs: term2.clone(),
                             });
                             candidate_rules.push(Rule {
-                                condition: None,
-                                lhs: term1.clone(),
-                                rhs: term2.clone(),
+                                condition: Some(pred.clone()),
+                                lhs: term2.clone(),
+                                rhs: term1.clone(),
                             });
                         }
                     }
