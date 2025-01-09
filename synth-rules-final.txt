@@ -1,4 +1,4 @@
-389 rules found in 1771.979442208 seconds
+326 rules found in 286.593506458 seconds
 
 ?a ~> (Neg (Neg ?a ) )
 
@@ -170,7 +170,7 @@ if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Div ?a (Not ?a ) )
 
 if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Not (Eq ?b ?b ) )
 
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Xor ?a (Neg ?a ) )
+if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Xor (Neg ?a ) ?a )
 
 if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Not (Sub ?b ?a ) )
 
@@ -468,9 +468,9 @@ if (Lt ?b ?a ) then (Not (Lt ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
 if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
-(Mul (Neg ?b ) ?b ) ~> (Neg (Mul ?b ?b ) )
+(Mul ?b (Neg ?b ) ) ~> (Neg (Mul ?b ?b ) )
 
-(Eq (Not ?b ) ?b ) ~> (Xor ?b (Neg ?b ) )
+(Eq (Not ?b ) ?b ) ~> (Xor (Neg ?b ) ?b )
 
 (Eq (Not ?b ) ?b ) ~> (Div ?b (Not ?b ) )
 
@@ -492,27 +492,27 @@ if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
 (Implies ?a ?b ) ~> (Implies (Neg ?a ) ?b )
 
-(Xor ?b (Neg ?b ) ) ~> (Div ?b (Not ?b ) )
+(Xor (Neg ?b ) ?b ) ~> (Div ?b (Not ?b ) )
 
-(Xor ?b (Neg ?b ) ) ~> (Neq ?b ?b )
+(Xor (Neg ?b ) ?b ) ~> (Neq ?b ?b )
 
-(Xor ?b (Neg ?b ) ) ~> (Not (Eq ?b ?b ) )
+(Xor (Neg ?b ) ?b ) ~> (Not (Eq ?b ?b ) )
 
-(Xor ?b (Neg ?b ) ) ~> (Mul (Not ?b ) ?b )
+(Xor (Neg ?b ) ?b ) ~> (Mul (Not ?b ) ?b )
 
-(Xor ?b (Neg ?b ) ) ~> (Neg (Neq ?b ?b ) )
+(Xor (Neg ?b ) ?b ) ~> (Neg (Neq ?b ?b ) )
 
-(Xor ?b (Neg ?b ) ) ~> (Add (Neg ?b ) ?b )
+(Xor (Neg ?b ) ?b ) ~> (Add (Neg ?b ) ?b )
 
-(Xor ?b (Neg ?b ) ) ~> (Div (Not ?b ) ?b )
+(Xor (Neg ?b ) ?b ) ~> (Div (Not ?b ) ?b )
 
-(Xor ?b (Neg ?b ) ) ~> (And (Not ?b ) ?b )
+(Xor (Neg ?b ) ?b ) ~> (And (Not ?b ) ?b )
 
 (Not (Xor ?a ?b ) ) ~> (Xor ?b (Not ?a ) )
 
 (Not (Not ?a ) ) ~> (Or ?a (Neg ?a ) )
 
-(Not (Not ?a ) ) ~> (Neq ?a (Neg ?a ) )
+(Not (Not ?a ) ) ~> (Neq (Neg ?a ) ?a )
 
 (Not (Not ?a ) ) ~> (And (Neg ?a ) ?a )
 
@@ -568,6 +568,8 @@ if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
 (Not (Mul ?b ?b ) ) ~> (Eq (Neg ?b ) ?b )
 
+(Not (Mul ?b ?b ) ) ~> (Not ?b )
+
 (Sub ?b ?a ) ~> (Neg (Sub ?a ?b ) )
 
 (Sub ?b ?a ) ~> (Add (Neg ?a ) ?b )
@@ -600,13 +602,13 @@ if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
 (Lt (Neg ?b ) ?b ) ~> (Leq (Not ?b ) ?b )
 
-(Xor ?a (Neg ?b ) ) ~> (Xor ?a ?b )
+(Xor (Neg ?b ) ?a ) ~> (Xor ?a ?b )
 
 (Or ?b (Neg ?a ) ) ~> (Or ?a ?b )
 
 (Div ?a (Not ?b ) ) ~> (Mul (Not ?b ) ?a )
 
-(Neq ?b (Neg ?a ) ) ~> (Neq ?a (Neg ?b ) )
+(Neq (Neg ?a ) ?b ) ~> (Neq (Neg ?b ) ?a )
 
 (Mul (Not ?b ) ?b ) ~> (Add (Neg ?b ) ?b )
 
@@ -628,7 +630,7 @@ if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 
 (Lt ?a ?b ) ~> (Not (Leq ?b ?a ) )
 
-(Or ?b (Neg ?b ) ) ~> (Neq ?b (Neg ?b ) )
+(Or ?b (Neg ?b ) ) ~> (Neq (Neg ?b ) ?b )
 
 (Implies (Not ?a ) ?b ) ~> (Implies (Not ?b ) ?a )
 
@@ -649,132 +651,4 @@ if (Leq ?b ?a ) then (Not (Leq ?b ?a ) ) ~> (And (Not ?b ) ?b )
 (Not (Eq ?a ?b ) ) ~> (Neq ?a ?b )
 
 (Eq ?a ?b ) ~> (Not (Neq ?a ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Min (Not ?a ) (Not ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Not (Max ?a (Neg ?b ) ) )
-
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Not (Min (Neg ?a ) ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (Div (Not ?a ) (Not ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Leq ?a ?b ) ) ~> (And (Not ?a ) (Not ?b ) )
-
-if (Lt ?b ?a ) then (Min (Not ?a ) (Not ?b ) ) ~> (Neg (Lt ?a ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (Not (Max ?a (Neg ?b ) ) )
-
-if (Leq ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (Div ?b (Neg (Not ?b ) ) )
-
-if (Lt ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (Not (Min (Neg ?a ) ?b ) )
-
-if (Leq ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (Div ?a (Neg (Not ?a ) ) )
-
-if (Lt ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (Div (Not ?a ) (Not ?b ) )
-
-if (Lt ?b ?a ) then (Neg (Lt ?a ?b ) ) ~> (And (Not ?a ) (Not ?b ) )
-
-if (Lt ?a ?b ) then (Min ?a ?b ) ~> (Div ?a (Not (Not ?a ) ) )
-
-if (Leq ?b ?a ) then (Min ?a ?b ) ~> (Select ?a ?b ?b )
-
-if (Lt ?a ?b ) then (Min ?a ?b ) ~> (Select ?a ?a ?a )
-
-if (Lt ?a ?b ) then (Lt ?a ?b ) ~> (Or (Not (Not ?a ) ) ?b )
-
-if (Lt ?a ?b ) then (Lt ?a ?b ) ~> (Or ?a (Not (Not ?b ) ) )
-
-if (Lt ?b ?a ) then (Or (Not (Not ?a ) ) ?b ) ~> (Leq ?b ?a )
-
-if (Lt ?a ?b ) then (Or (Not (Not ?a ) ) ?b ) ~> (Leq ?a ?b )
-
-if (Lt ?a ?b ) then (Max ?a ?b ) ~> (Select ?a ?b ?b )
-
-if (Leq ?b ?a ) then (Max ?a ?b ) ~> (Select ?a ?a ?a )
-
-if (Lt ?a ?b ) then (Min (Neg ?a ) (Neg ?b ) ) ~> (Neg ?b )
-
-(Div (Neg ?a ) (Not ?b ) ) ~> (Div ?a (Neg (Not ?b ) ) )
-
-(Leq ?b (Neg (Not ?a ) ) ) ~> (Lt ?b (Not (Not ?a ) ) )
-
-(Leq (Neg ?b ) ?b ) ~> (Not (Min (Not ?b ) ?b ) )
-
-?a ~> (Div ?a (Not (Not ?a ) ) )
-
-?a ~> (Select ?a ?a ?a )
-
-(Eq (Not ?a ) (Not ?b ) ) ~> (Xor (Not ?b ) ?a )
-
-(Neg (Min (Neg ?a ) ?b ) ) ~> (Max ?a (Neg ?b ) )
-
-(Div (Not ?b ) (Neg ?a ) ) ~> (Neg (Div (Not ?b ) ?a ) )
-
-(Not (Or ?b (Not ?a ) ) ) ~> (And (Not ?b ) ?a )
-
-(Not (Or ?b (Not ?a ) ) ) ~> (Lt (Not ?a ) (Not ?b ) )
-
-(Not (Min (Neg ?a ) ?a ) ) ~> (Not ?a )
-
-(Lt ?b (Neg ?b ) ) ~> (Not (Max (Not ?b ) ?b ) )
-
-(Not (Not ?a ) ) ~> (Or ?a (Not (Not ?a ) ) )
-
-(Not (Mul ?a ?b ) ) ~> (Or (Not ?a ) (Not ?b ) )
-
-(Not (Mul ?a ?b ) ) ~> (Max (Not ?a ) (Not ?b ) )
-
-(Lt ?a (Not (Not ?a ) ) ) ~> (Not (Max ?a (Not ?a ) ) )
-
-(And (Not (Not ?a ) ) ?b ) ~> (And ?a (Not (Not ?b ) ) )
-
-(And (Not (Not ?a ) ) ?b ) ~> (And ?a ?b )
-
-(Not (Min (Not ?b ) ?b ) ) ~> (Leq (Not (Not ?b ) ) ?b )
-
-(Min (Neg ?a ) ?b ) ~> (Neg (Max ?a (Neg ?b ) ) )
-
-(Xor (Not ?a ) (Not ?b ) ) ~> (Neq (Not ?a ) (Not ?b ) )
-
-(Xor (Not ?a ) (Not ?b ) ) ~> (Xor ?a ?b )
-
-(Min (Not ?a ) (Not ?b ) ) ~> (Not (Or ?a ?b ) )
-
-(Min (Not ?a ) (Not ?b ) ) ~> (Div (Not ?a ) (Not ?b ) )
-
-(Or ?a ?b ) ~> (Not (Not (Or ?a ?b ) ) )
-
-(Or ?a ?b ) ~> (Or (Not (Not ?a ) ) ?b )
-
-(Select ?b ?a ?b ) ~> (Div ?a (Not (Not ?b ) ) )
-
-(And (Not ?b ) ?a ) ~> (Lt (Not ?a ) (Not ?b ) )
-
-(Not ?a ) ~> (Not (Max ?a (Neg ?a ) ) )
-
-(Not (Div ?b (Neg ?a ) ) ) ~> (Not (Div ?b ?a ) )
-
-(Implies (Not ?b ) ?b ) ~> (Not (Implies ?b (Not ?b ) ) )
-
-(Neq (Not ?a ) (Not ?b ) ) ~> (Xor ?a ?b )
-
-(Div (Neg (Not ?b ) ) ?b ) ~> (Div ?b (Neg (Not ?b ) ) )
-
-(Div (Neg (Not ?b ) ) ?b ) ~> (Neq ?b ?b )
-
-(Div ?b (Neg (Not ?b ) ) ) ~> (Neq ?b ?b )
-
-(Not (Not (Implies ?a ?b ) ) ) ~> (Implies (Not ?b ) (Not ?a ) )
-
-(Not (Not (Implies ?a ?b ) ) ) ~> (Implies ?a ?b )
-
-(Not (Or ?a ?b ) ) ~> (Div (Not ?a ) (Not ?b ) )
-
-(Select ?a ?b ?b ) ~> (Select ?b ?b ?b )
-
-(Implies (Not ?a ) (Not ?b ) ) ~> (Implies ?b ?a )
-
-(Div (Not ?a ) (Not ?b ) ) ~> (And (Not ?a ) (Not ?b ) )
-
-(Max (Neg ?a ) (Neg ?b ) ) ~> (Neg (Min ?a ?b ) )
 
