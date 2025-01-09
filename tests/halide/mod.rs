@@ -322,8 +322,6 @@ impl ChompyLanguage for HalideLanguage {
             }
         }
 
-        // TODO: fix mii so that cond(lhs) holds, and that we don't just do the non-conditional
-        // method of leaving variables inside.
         let num_concretized_rules = 10;
         let vars: HashSet<String> = self.get_vars().into_iter().collect();
 
@@ -380,8 +378,6 @@ impl ChompyLanguage for HalideLanguage {
                         env.insert(var.clone(), self.make_val(val));
                     }
                     env_caches.push(env.clone());
-                    // TODO: this bottom part isn't right yet; it should replace the variables
-                    // inside lhs, rhs with the constants in `env`.
                     concretized_rules.push((
                         construct_sexp(&rule.lhs, &env),
                         construct_sexp(&rule.rhs, &env),
