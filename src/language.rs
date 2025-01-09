@@ -130,8 +130,11 @@ pub trait ChompyLanguage {
     ///     MathLang::Sub(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
     ///     MathLang::Mul(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
     ///     MathLang::Div(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Neq(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
+    ///     MathLang::Gt(Box::new(MathLang::Var("x".to_string())), Box::new(MathLang::Var("x".to_string()))),
     ///  ];
-    ///  let actual = new_workload.force().iter().map(|x| MathLang::from_sexp(x.clone())).collect::<Vec<MathLang>>();
+    ///  let actual = new_workload.force().iter().map(|x|
+    ///  MathLang::from(x.clone())).collect::<Vec<MathLang>>();
     ///  assert_eq!(expected, actual);
     /// ```
     fn produce(&self, old_workload: &Workload) -> Workload {
@@ -236,9 +239,11 @@ pub trait ChompyLanguage {
 /// ```
 /// use ruler::enumo::Sexp;
 /// use std::str::FromStr;
-/// assert!(is_var(Sexp::from_str("(Var blah)")));
-/// assert!(!is_var(Sexp::from_str("(Const blah)")));
-/// assert!(!is_var(Sexp::from_str("(var blah)")));
+///
+/// use chompy::language::is_var;
+/// assert!(is_var(&Sexp::from_str("(Var blah)").unwrap()));
+/// assert!(!is_var(&Sexp::from_str("(Const blah)").unwrap()));
+/// assert!(!is_var(&Sexp::from_str("(var blah)").unwrap()));
 /// ```
 pub fn is_var(sexp: &Sexp) -> bool {
     match sexp {

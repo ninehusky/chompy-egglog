@@ -384,12 +384,40 @@ pub fn format_sexp(sexp: &Sexp) -> String {
     result
 }
 
-// A rule is "good" if the variables on the right hand side are all "bound" by the left hand
-// side.
-// A conditional rule is "good" if the above is met, and the condition only refers to variables bound by the left hand
-// side.
-// TODO: test mii
-fn all_variables_bound(rule: &Rule) -> bool {
+/// A rule is "good" if the variables on the right hand side are all "bound" by the left hand
+/// side.
+/// A conditional rule is "good" if the above is met, and the condition only refers to variables bound by the left hand
+/// side.
+/// ```
+/// use ruler::enumo::Sexp;
+/// use std::str::FromStr;
+/// use chompy::chomper::Rule;
+/// use chompy::chomper::all_variables_bound;
+///
+/// let rule1 = Rule {
+///     condition: None,
+///     lhs: Sexp::from_str("(Var x)").unwrap(),
+///     rhs: Sexp::from_str("(Var y)").unwrap(),
+/// };
+///
+/// let rule2 = Rule {
+///     condition: None,
+///     lhs: Sexp::from_str("(Var x)").unwrap(),
+///     rhs: Sexp::from_str("(Const 1)").unwrap(),
+/// };
+///
+/// let rule3 = Rule {
+///     condition: Some(Sexp::from_str("(Var y)").unwrap()),
+///     lhs: Sexp::from_str("(Var x)").unwrap(),
+///     rhs: Sexp::from_str("(Const 1)").unwrap(),
+/// };
+///
+/// assert!(!all_variables_bound(&rule1));
+/// assert!(all_variables_bound(&rule2));
+/// assert!(!all_variables_bound(&rule3));
+///     
+/// ```
+pub fn all_variables_bound(rule: &Rule) -> bool {
     fn get_vars(sexp: &Sexp) -> Vec<String> {
         match sexp {
             Sexp::Atom(_) => vec![],
@@ -419,6 +447,10 @@ fn all_variables_bound(rule: &Rule) -> bool {
         Some(cond) => get_vars(cond),
     };
     // rhs_vars union cond_vars must be a subset of lhs_vars.
+    if rhs_vars.is_empty() && cond_vars.is_empty() {
+        return true;
+    }
+
     rhs_vars
         .iter()
         .chain(cond_vars.iter())
