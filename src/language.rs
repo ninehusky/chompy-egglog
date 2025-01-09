@@ -336,11 +336,16 @@ impl ChompyLanguage for MathLang {
     }
 
     fn get_vals(&self) -> Vec<Self::Constant> {
-        vec![]
+        vec![-1, 0, 1]
     }
 
     fn get_vars(&self) -> Vec<String> {
-        vec!["x".to_string(), "y".to_string(), "z".to_string()]
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ]
     }
 
     fn const_type_as_str(&self) -> String {

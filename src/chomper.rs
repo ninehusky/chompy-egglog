@@ -1,9 +1,13 @@
+use crate::language::MathLang;
+use crate::PredicateInterpreter;
 use std::{fmt::Display, str::FromStr, sync::Arc};
+
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 use crate::{
     ite::DummySort,
     language::{CVec, ChompyLanguage, ValidationResult},
-    PredicateInterpreter,
 };
 use egglog::{sort::EqSort, EGraph};
 use log::info;
@@ -197,7 +201,7 @@ pub trait Chomper {
 
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
-        const MAX_DERIVABILITY_ITERATIONS: usize = 10;
+        const MAX_DERIVABILITY_ITERATIONS: usize = 7;
         let mut egraph = initial_egraph.clone();
         for rule in ruleset {
             self.add_rewrite(&mut egraph, rule);
@@ -425,68 +429,47 @@ fn all_variables_bound(rule: &Rule) -> bool {
         .all(|var| lhs_vars.contains(var))
 }
 
-#[allow(unused_imports)]
-pub mod tests {
-    use crate::language::MathLang;
-    use crate::PredicateInterpreter;
+/// A sample implementation of the Chomper trait for the MathLang language.
+pub struct MathChomper;
 
-    use crate::chomper::Chomper;
-    use crate::language::*;
+impl Chomper for MathChomper {
+    type Constant = i64;
 
-    use rand::rngs::StdRng;
-    use rand::{Rng, SeedableRng};
-
-    #[test]
-    fn test_chomper() {
-        struct MathChomper;
-
-        impl Chomper for MathChomper {
-            type Constant = i64;
-
-            fn make_pred_interpreter() -> impl crate::PredicateInterpreter {
-                #[derive(Debug)]
-                struct DummyPredicateInterpreter;
-                impl PredicateInterpreter for DummyPredicateInterpreter {
-                    fn interp_cond(&self, sexp: &ruler::enumo::Sexp) -> bool {
-                        let dummy_term = MathLang::Var("dummy".to_string());
-                        match dummy_term.eval(sexp, &Default::default()).get(0).unwrap() {
-                            Some(val) => *val > 0,
-                            None => false,
-                        }
-                    }
+    fn make_pred_interpreter() -> impl crate::PredicateInterpreter {
+        #[derive(Debug)]
+        struct DummyPredicateInterpreter;
+        impl PredicateInterpreter for DummyPredicateInterpreter {
+            fn interp_cond(&self, sexp: &ruler::enumo::Sexp) -> bool {
+                let dummy_term = MathLang::Var("dummy".to_string());
+                match dummy_term.eval(sexp, &Default::default()).get(0).unwrap() {
+                    Some(val) => *val > 0,
+                    None => false,
                 }
-                DummyPredicateInterpreter
-            }
-
-            fn initialize_env(
-                &self,
-            ) -> ruler::HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>
-            {
-                let mut env = ruler::HashMap::default();
-                // make seedable rng
-                let seed = 0b1001;
-                // TODO: this should be part of the interface for eval?
-                let cvec_len = 10;
-                let mut rng = StdRng::seed_from_u64(seed);
-
-                for var in self.get_language().get_vars() {
-                    let cvec = (0..cvec_len)
-                        .map(|_| Some(rng.gen_range(-10..10)))
-                        .collect::<CVec<MathLang>>();
-                    env.insert(var.clone(), cvec);
-                }
-                env
-            }
-
-            fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>> {
-                Box::new(MathLang::Var("dummy".to_string()))
             }
         }
+        DummyPredicateInterpreter
+    }
 
-        let chomper = MathChomper;
-        let rules = chomper.run_chompy(10);
-        for rule in rules {
-            println!("{}", rule);
+    fn initialize_env(
+        &self,
+    ) -> ruler::HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>> {
+        let mut env = ruler::HashMap::default();
+        // make seedable rng
+        let seed = 0b1001;
+        // TODO: this should be part of the interface for eval?
+        let cvec_len = 10;
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        for var in self.get_language().get_vars() {
+            let cvec = (0..cvec_len)
+                .map(|_| Some(rng.gen_range(-10..10)))
+                .collect::<CVec<MathLang>>();
+            env.insert(var.clone(), cvec);
         }
+        env
+    }
+
+    fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>> {
+        Box::new(MathLang::Var("dummy".to_string()))
     }
 }
