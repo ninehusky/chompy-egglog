@@ -196,11 +196,17 @@ pub trait Chomper {
         &self,
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
-    fn rule_is_derivable(&self, initial_egraph: &EGraph, ruleset: &Vec<Rule>, rule: &Rule) -> bool {
+    fn rule_is_derivable(
+        &self,
+        initial_egraph: &EGraph,
+        ruleset: &Vec<Rule>,
+        rule: &Rule,
+        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
+    ) -> bool {
         info!("assessing rule: {}", rule);
 
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
-        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
+        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
         const MAX_DERIVABILITY_ITERATIONS: usize = 7;
         let mut egraph = initial_egraph.clone();
         for rule in ruleset {
@@ -289,6 +295,7 @@ pub trait Chomper {
 
         let initial_egraph = egraph.clone();
         let env = self.initialize_env();
+        let env_cache = &mut HashMap::default();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
@@ -337,7 +344,8 @@ pub trait Chomper {
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
-                    let derivable = self.rule_is_derivable(&initial_egraph, &rules, rule);
+                    let derivable =
+                        self.rule_is_derivable(&initial_egraph, &rules, rule, env_cache);
                     info!("candidate rule: {}", rule);
                     info!("validation result: {:?}", valid);
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });

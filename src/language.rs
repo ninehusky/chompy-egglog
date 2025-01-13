@@ -51,9 +51,19 @@ pub trait ChompyLanguage {
     /// Given some rule `(l, r)`, returns a vector of `(l', r')` pairs where `l'` and `r'`
     /// are `l` and `r` concretized with variables replaced by constants. `l'` must be
     /// equivalent to `r'`.
-    fn concretize_rule(&self, rule: &Rule) -> Vec<(Sexp, Sexp)>;
+    fn concretize_rule(
+        &self,
+        rule: &Rule,
+        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
+    ) -> Vec<(Sexp, Sexp)>;
 
+    /// Generalizes the given term by replacing variables with unique identifiers.
+    /// These identifiers are just '?a', '?b', etc. The letter which is assigned to a variable
+    /// is determined by the order in which the variable is encountered, i.e., the first
+    /// variable encountered is assigned '?a', the second '?b', etc.
     fn generalize_term(&self, cache: &mut HashMap<String, String>, term: &Sexp) -> Sexp {
+        // TODO: maybe handle cases where some term has > 26 variables.
+        // unlikely to happen in practice, but still.
         fn letter(i: usize) -> char {
             (b'a' + (i % 26) as u8) as char
         }
@@ -404,7 +414,11 @@ impl ChompyLanguage for MathLang {
             .plug("EXPR", &Workload::new(atoms))
     }
 
-    fn concretize_rule(&self, rule: &Rule) -> Vec<(Sexp, Sexp)> {
+    fn concretize_rule(
+        &self,
+        rule: &Rule,
+        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
+    ) -> Vec<(Sexp, Sexp)> {
         fn construct_sexp(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
             if is_var(sexp) {
                 if let Sexp::List(l) = sexp {
