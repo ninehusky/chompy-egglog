@@ -116,6 +116,7 @@ pub trait ChompyLanguage {
     /// r`, `l = r` in the language.
     /// For a conditional rule `if c then l ~> r`, if `c` is true in the language, then `l = r`,
     /// i.e., `c -> l = r`.
+    /// **Assumes that the rule has not been generalized (see `generalize_rule`).**
     fn validate_rule(&self, rule: &Rule) -> ValidationResult;
 
     /// Returns a list of list of functions of this language. The ith element of the outer list is a list of functions
@@ -419,28 +420,58 @@ impl ChompyLanguage for MathLang {
         rule: &Rule,
         env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
     ) -> Vec<(Sexp, Sexp)> {
-        fn construct_sexp(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
-            if is_var(sexp) {
-                if let Sexp::List(l) = sexp {
-                    let id = l[1].clone();
-                    return env[&id.to_string()].clone();
-                }
-                panic!();
-            }
+        fn subst(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
             match sexp {
-                Sexp::Atom(_) => sexp.clone(),
+                Sexp::Atom(a) => {
+                    if a.starts_with("?") {
+                        if let Some(val) = env.get(a) {
+                            return val.clone();
+                        }
+                        panic!("Variable not found in environment: {:?}", a);
+                    } else {
+                        sexp.clone()
+                    }
+                }
                 Sexp::List(l) => {
                     let mut new_l: Vec<Sexp> = vec![];
                     for t in l {
-                        new_l.push(construct_sexp(t, env));
+                        new_l.push(subst(t, env));
                     }
                     Sexp::List(new_l)
                 }
             }
         }
 
-        // TODO: fix mii so that cond(lhs) holds, and that we don't just do the non-conditional
-        // method of leaving variables inside.
+        // This is a hack. So sorry, everyone.
+        fn degeneralize(sexp: &Sexp) -> Sexp {
+            match sexp {
+                Sexp::Atom(a) => {
+                    if a.starts_with("?") {
+                        Sexp::List(vec![
+                            Sexp::Atom("Var".to_string()),
+                            Sexp::Atom(a.to_string()),
+                        ])
+                    } else {
+                        sexp.clone()
+                    }
+                }
+                Sexp::List(l) => {
+                    let mut new_l: Vec<Sexp> = vec![];
+                    for t in l {
+                        new_l.push(degeneralize(t));
+                    }
+                    Sexp::List(new_l)
+                }
+            }
+        }
+
+        if let Some(cached) = env_cache.get(&(rule.lhs.to_string(), rule.rhs.to_string())) {
+            return cached
+                .iter()
+                .map(|env| (subst(&rule.lhs, env), subst(&rule.rhs, env)))
+                .collect();
+        }
+
         let num_concretized_rules = 10;
         let vars: HashSet<String> = self.get_vars().into_iter().collect();
 
@@ -449,7 +480,10 @@ impl ChompyLanguage for MathLang {
         let mut env_caches: Vec<HashMap<String, Sexp>> = vec![];
 
         let mut concretized_rules: Vec<(Sexp, Sexp)> = vec![];
-        let ctx = z3::Context::new(&z3::Config::new());
+        let mut cfg = z3::Config::new();
+        cfg.set_timeout_msec(1000);
+        let ctx = z3::Context::new(&cfg);
+        let solver = z3::Solver::new(&ctx);
         if let Some(cond) = &rule.condition {
             // this is trickier. we need to assign values to the variables such that the condition
             // holds.
@@ -457,10 +491,14 @@ impl ChompyLanguage for MathLang {
             for _ in 0..num_concretized_rules {
                 // assert(cond)
                 let mut assertions: Vec<z3::ast::Bool> = vec![];
-                assertions.push(mathlang_to_z3(&ctx, &MathLang::from(cond.clone()))._eq(&one));
+                // TODO: here we have to make sure we're saying the condition holds on the entire
+                // left hand side, not just the variable itself. maybe.
+                assertions.push(
+                    mathlang_to_z3(&ctx, &MathLang::from(degeneralize(&cond.clone())))._eq(&one),
+                );
                 // push some dummy assertions just to get all variables in scope.
                 for var in &vars {
-                    let const_var = z3::ast::Int::new_const(&ctx, var.clone());
+                    let const_var = z3::ast::Int::new_const(&ctx, format!("?{}", var.clone()));
                     // this assertion will always hold; a model which disproves the assertion
                     // above will not break this assertion.
                     assertions.push(const_var._eq(&const_var));
@@ -477,10 +515,6 @@ impl ChompyLanguage for MathLang {
                     }
                 }
                 // now, send this to the solver.
-                let mut cfg = z3::Config::new();
-                cfg.set_timeout_msec(1000);
-                let solver = z3::Solver::new(&ctx);
-                info!("assertions: {:?}", assertions);
                 for assertion in &assertions {
                     solver.assert(assertion);
                 }
@@ -490,19 +524,22 @@ impl ChompyLanguage for MathLang {
                     let mut env: HashMap<String, Sexp> = HashMap::default();
                     for var in &vars {
                         let val = model
-                            .eval(&z3::ast::Int::new_const(&ctx, var.clone()))
+                            .eval(&z3::ast::Int::new_const(&ctx, format!("?{}", var.clone())))
                             .unwrap()
                             .as_i64()
                             .unwrap();
-                        env.insert(var.clone(), self.make_val(val));
+                        // want to make sure not adding extra ?
+                        assert!(!var.clone().starts_with("?"));
+                        env.insert(format!("?{}", var.clone()), self.make_val(val));
                     }
                     env_caches.push(env.clone());
-                    concretized_rules.push((
-                        construct_sexp(&rule.lhs, &env),
-                        construct_sexp(&rule.rhs, &env),
-                    ));
+                    concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
+                    env_cache.insert(
+                        (rule.lhs.to_string(), rule.rhs.to_string()),
+                        env_caches.clone(),
+                    );
                 } else {
-                    break;
+                    panic!("Couldn't find satisfiable model for condition: {:?}", cond);
                 }
             }
         } else {
@@ -511,12 +548,9 @@ impl ChompyLanguage for MathLang {
                 let mut env: HashMap<String, Sexp> = HashMap::default();
                 for v in &vars {
                     let val = rng.gen_range(-10..10);
-                    env.insert(v.clone(), self.make_val(val));
+                    env.insert(format!("?{}", v.clone()), self.make_val(val));
                 }
-                concretized_rules.push((
-                    construct_sexp(&rule.lhs, &env),
-                    construct_sexp(&rule.rhs, &env),
-                ));
+                concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
             }
         }
         concretized_rules
@@ -594,14 +628,15 @@ impl ChompyLanguage for MathLang {
 
     // TODO: include CVEC_LEN here
     fn eval(&self, sexp: &Sexp, env: &HashMap<String, CVec<Self>>) -> CVec<Self> {
+        let cvec_len = 10;
         let term = MathLang::from(sexp.clone());
-        match term {
-            MathLang::Const(c) => vec![Some(c)],
+        let result = match term {
+            MathLang::Const(c) => vec![Some(c); cvec_len],
             MathLang::Var(v) => {
                 if let Some(x) = env.get(&v) {
                     x.clone()
                 } else {
-                    vec![None]
+                    vec![None; cvec_len]
                 }
             }
             MathLang::Abs(e) => {
@@ -662,7 +697,9 @@ impl ChompyLanguage for MathLang {
                     })
                     .collect()
             }
-        }
+        };
+        assert_eq!(result.len(), cvec_len);
+        result
     }
 }
 

@@ -47,7 +47,8 @@ pub fn evaluate_ruleset<C: Chomper + Sized, L: ChompyLanguage + Sized>(
     let b = Box::new(language);
     for rule in other_rules {
         let rule = transform_rule(rule, &b);
-        let result = chomper.rule_is_derivable(&egraph, &chompy_rules, &rule);
+        let result =
+            chomper.rule_is_derivable(&egraph, &chompy_rules, &rule, &mut Default::default());
         if result {
             println!("Rule is derivable: {:?}", rule);
         } else {
