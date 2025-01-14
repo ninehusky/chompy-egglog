@@ -491,8 +491,6 @@ impl ChompyLanguage for MathLang {
             for _ in 0..num_concretized_rules {
                 // assert(cond)
                 let mut assertions: Vec<z3::ast::Bool> = vec![];
-                // TODO: here we have to make sure we're saying the condition holds on the entire
-                // left hand side, not just the variable itself. maybe.
                 assertions.push(
                     mathlang_to_z3(&ctx, &MathLang::from(degeneralize(&cond.clone())))._eq(&one),
                 );
@@ -503,7 +501,7 @@ impl ChompyLanguage for MathLang {
                     // above will not break this assertion.
                     assertions.push(const_var._eq(&const_var));
                 }
-                // there should also be one mega assertion which makes sure we don't generate
+                // there should also be assertions which make sure we don't generate
                 // the same model twice.
                 for env in env_caches.iter() {
                     for (var, val) in env {

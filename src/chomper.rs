@@ -169,9 +169,6 @@ pub trait Chomper {
                         .collect::<Vec<bool>>();
                     // if they never match, we can't generate a rule.
                     if mask.iter().all(|x| *x) {
-                        println!("cvec1 == cvec2: {}", cvec1 == cvec2);
-                        println!("cvec1: {:?}", cvec1);
-                        println!("cvec2: {:?}", cvec2);
                         panic!("cvec1 != cvec2, yet we have a mask of all true");
                     }
                     if mask.iter().all(|x| !x) {
