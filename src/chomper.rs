@@ -1,5 +1,6 @@
 use crate::language::MathLang;
 use crate::PredicateInterpreter;
+use std::fmt::Debug;
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use rand::rngs::StdRng;
@@ -37,7 +38,7 @@ impl Display for Rule {
 
 /// Chompers manage the state of the e-graph.
 pub trait Chomper {
-    type Constant: Display + Clone + PartialEq;
+    type Constant: Display + Debug + Clone + PartialEq;
     fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>>;
 
     fn make_pred_interpreter() -> impl PredicateInterpreter + 'static;
@@ -167,6 +168,9 @@ pub trait Chomper {
                         .map(|(a, b)| a == b)
                         .collect::<Vec<bool>>();
                     // if they never match, we can't generate a rule.
+                    if mask.iter().all(|x| *x) {
+                        panic!("cvec1 != cvec2, yet we have a mask of all true");
+                    }
                     if mask.iter().all(|x| !x) {
                         continue;
                     }
@@ -196,11 +200,19 @@ pub trait Chomper {
         &self,
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
-    fn rule_is_derivable(&self, initial_egraph: &EGraph, ruleset: &Vec<Rule>, rule: &Rule) -> bool {
+    /// Returns if the given rule can be derived from the given ruleset.
+    /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
+    fn rule_is_derivable(
+        &self,
+        initial_egraph: &EGraph,
+        ruleset: &Vec<Rule>,
+        rule: &Rule,
+        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
+    ) -> bool {
         info!("assessing rule: {}", rule);
 
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
-        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule);
+        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
         const MAX_DERIVABILITY_ITERATIONS: usize = 7;
         let mut egraph = initial_egraph.clone();
         for rule in ruleset {
@@ -216,13 +228,13 @@ pub trait Chomper {
             // self.run_rewrites(&mut egraph, None);
             let result =
                 egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
-            if result.is_err() {
-                // the existing ruleset was unable to conclude that lhs = rhs,
-                // so the rule is not derivable from the existing ruleset.
-                return false;
+            if result.is_ok() {
+                // the existing ruleset was able to derive the equality.
+                return true;
             }
         }
-        true
+        // the existing ruleset failed to derive the equality on all the given examples.
+        false
     }
 
     fn add_rewrite(&self, egraph: &mut EGraph, rule: &Rule) {
@@ -289,6 +301,7 @@ pub trait Chomper {
 
         let initial_egraph = egraph.clone();
         let env = self.initialize_env();
+        let env_cache = &mut HashMap::default();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
@@ -337,7 +350,9 @@ pub trait Chomper {
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
-                    let derivable = self.rule_is_derivable(&initial_egraph, &rules, rule);
+                    let rule = language.generalize_rule(&rule.clone());
+                    let derivable =
+                        self.rule_is_derivable(&initial_egraph, &rules, &rule, env_cache);
                     info!("candidate rule: {}", rule);
                     info!("validation result: {:?}", valid);
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });
