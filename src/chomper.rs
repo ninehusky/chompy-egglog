@@ -200,12 +200,11 @@ pub trait Chomper {
         &self,
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
-    /// Returns if the given rule can be derived from the given ruleset.
+    /// Returns if the given rule can be derived from the ruleset within the given e-graph.
     /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
     fn rule_is_derivable(
         &self,
         initial_egraph: &EGraph,
-        ruleset: &Vec<Rule>,
         rule: &Rule,
         env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
     ) -> bool {
@@ -214,12 +213,8 @@ pub trait Chomper {
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
         const MAX_DERIVABILITY_ITERATIONS: usize = 7;
-        let mut egraph = initial_egraph.clone();
-        for rule in ruleset {
-            self.add_rewrite(&mut egraph, rule);
-        }
         for (lhs, rhs) in terms {
-            let mut egraph = egraph.clone();
+            let mut egraph = initial_egraph.clone();
             self.add_term(&lhs, &mut egraph, None);
             self.add_term(&rhs, &mut egraph, None);
             let l_sexpr = format_sexp(&lhs);
@@ -299,7 +294,6 @@ pub trait Chomper {
         const MAX_ECLASS_ID: usize = 6000;
         let mut egraph = self.get_initial_egraph();
 
-        let initial_egraph = egraph.clone();
         let env = self.initialize_env();
         let env_cache = &mut HashMap::default();
         let language = self.get_language();
@@ -348,11 +342,14 @@ pub trait Chomper {
                     break;
                 }
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
+                let mut just_rewrite_egraph = self.get_initial_egraph();
+                for rule in rules.iter() {
+                    self.add_rewrite(&mut just_rewrite_egraph, rule);
+                }
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
                     let rule = language.generalize_rule(&rule.clone());
-                    let derivable =
-                        self.rule_is_derivable(&initial_egraph, &rules, &rule, env_cache);
+                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule, env_cache);
                     info!("candidate rule: {}", rule);
                     info!("validation result: {:?}", valid);
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });
@@ -361,6 +358,7 @@ pub trait Chomper {
                         println!("rule: {}", rule);
                         rules.push(rule.clone());
                         self.add_rewrite(&mut egraph, &rule);
+                        self.add_rewrite(&mut just_rewrite_egraph, &rule);
                     }
                 }
             }
