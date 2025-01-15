@@ -212,7 +212,7 @@ pub trait Chomper {
 
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
-        const MAX_DERIVABILITY_ITERATIONS: usize = 3;
+        const MAX_DERIVABILITY_ITERATIONS: usize = 7;
         for (lhs, rhs) in terms {
             let mut egraph = initial_egraph.clone();
             self.add_term(&lhs, &mut egraph, None);
