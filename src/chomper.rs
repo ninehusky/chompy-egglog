@@ -294,7 +294,6 @@ pub trait Chomper {
         const MAX_ECLASS_ID: usize = 6000;
         let mut egraph = self.get_initial_egraph();
 
-        let initial_egraph = egraph.clone();
         let env = self.initialize_env();
         let env_cache = &mut HashMap::default();
         let language = self.get_language();
