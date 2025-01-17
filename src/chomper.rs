@@ -102,7 +102,14 @@ pub trait Chomper {
                 "#
             .to_string()
         };
-        egraph.parse_and_run_program(None, &prog).unwrap();
+
+        let prog = format!("{prog}\n(print-stats)\n");
+
+        let results = egraph.parse_and_run_program(None, &prog).unwrap();
+        // println!("STATS:");
+        for stat in results {
+            // println!("{}", stat);
+        }
     }
 
     /// Returns a map from e-class id to a candidate term in the e-class.

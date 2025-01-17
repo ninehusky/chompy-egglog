@@ -40,4 +40,3 @@ pub mod tests {
         );
     }
 }
-
