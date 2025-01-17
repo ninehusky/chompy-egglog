@@ -64,7 +64,6 @@ pub mod tests {
     //     chomper.run_chompy(8);
     // }
 }
-
 pub struct MiddleSchoolLang {
     pub math_lang: MathLang,
 }
