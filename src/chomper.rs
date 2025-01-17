@@ -102,7 +102,14 @@ pub trait Chomper {
                 "#
             .to_string()
         };
-        egraph.parse_and_run_program(None, &prog).unwrap();
+
+        let prog = format!("{prog}\n(print-stats)\n");
+
+        let results = egraph.parse_and_run_program(None, &prog).unwrap();
+        // println!("STATS:");
+        for stat in results {
+            // println!("{}", stat);
+        }
     }
 
     /// Returns a map from e-class id to a candidate term in the e-class.
@@ -211,6 +218,10 @@ pub trait Chomper {
         info!("assessing rule: {}", rule);
 
         // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
+        //
+        // |x| ~> |x|
+        // if x >= 0 then ...
+        // ?a + ?b ~> ?b + ?a
         let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
         const MAX_DERIVABILITY_ITERATIONS: usize = 7;
         for (lhs, rhs) in terms {
