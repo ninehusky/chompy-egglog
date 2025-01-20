@@ -106,10 +106,11 @@ pub trait Chomper {
         let prog = format!("{prog}\n(print-stats)\n");
 
         let results = egraph.parse_and_run_program(None, &prog).unwrap();
+        // TODO: consider adding TODO flag that turns this on.
         // println!("STATS:");
-        for stat in results {
-            // println!("{}", stat);
-        }
+        // for stat in results {
+        //     println!("{}", stat);
+        // }
     }
 
     /// Returns a map from e-class id to a candidate term in the e-class.

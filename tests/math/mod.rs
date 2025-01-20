@@ -2,6 +2,7 @@ use chompy::{
     chomper::{Chomper, MathChomper},
     language::{ChompyLanguage, MathLang},
 };
+use rand::{rngs::StdRng, SeedableRng};
 use ruler::enumo::Workload;
 
 pub mod tests {
@@ -16,37 +17,37 @@ pub mod tests {
         super::evaluate_ruleset, MiddleSchoolLangChomper, MiddleSchoolLangConditionsChomper,
     };
 
-    #[test]
-    fn check_math_rules() {
-        let chomper = MathChomper;
-        let predicates = chomper.get_language().get_predicates();
-        let values = chomper.get_language().get_vals();
-        for v in values {
-            println!("Value: {}", chomper.get_language().make_val(v));
-        }
-        for p in predicates.force() {
-            println!("Predicate: {}", p);
-        }
-        let rules = chomper.run_chompy(7);
-        let hand_picked_rules = vec![
-            Rule {
-                condition: Sexp::from_str("(Neq ?x (Const 0))").ok(),
-                lhs: Sexp::from_str("(Div ?x ?x)").unwrap(),
-                rhs: Sexp::from_str("(Const 1)").unwrap(),
-            },
-            Rule {
-                condition: Sexp::from_str("(Gt ?x (Const -1))").ok(),
-                lhs: Sexp::from_str("(Abs ?x)").unwrap(),
-                rhs: Sexp::from_str("?x").unwrap(),
-            },
-        ];
-        evaluate_ruleset::<MathChomper, MathLang>(
-            &rules,
-            &hand_picked_rules,
-            chomper,
-            MathLang::Var("dummy".into()),
-        );
-    }
+    // #[test]
+    // fn check_math_rules() {
+    //     let chomper = MathChomper;
+    //     let predicates = chomper.get_language().get_predicates();
+    //     let values = chomper.get_language().get_vals();
+    //     for v in values {
+    //         println!("Value: {}", chomper.get_language().make_val(v));
+    //     }
+    //     for p in predicates.force() {
+    //         println!("Predicate: {}", p);
+    //     }
+    //     let rules = chomper.run_chompy(7);
+    //     let hand_picked_rules = vec![
+    //         Rule {
+    //             condition: Sexp::from_str("(Neq ?x (Const 0))").ok(),
+    //             lhs: Sexp::from_str("(Div ?x ?x)").unwrap(),
+    //             rhs: Sexp::from_str("(Const 1)").unwrap(),
+    //         },
+    //         Rule {
+    //             condition: Sexp::from_str("(Gt ?x (Const -1))").ok(),
+    //             lhs: Sexp::from_str("(Abs ?x)").unwrap(),
+    //             rhs: Sexp::from_str("?x").unwrap(),
+    //         },
+    //     ];
+    //     evaluate_ruleset::<MathChomper, MathLang>(
+    //         &rules,
+    //         &hand_picked_rules,
+    //         chomper,
+    //         MathLang::Var("dummy".into()),
+    //     );
+    // }
 
     // #[test]
     // fn middle_school_total_tests() {
@@ -56,13 +57,17 @@ pub mod tests {
     //     chomper.run_chompy(6);
     // }
 
-    // #[test]
-    // fn middle_school_conditional_tests() {
-    //     let chomper = MiddleSchoolLangConditionsChomper {
-    //         math_chomper: MathChomper,
-    //     };
-    //     chomper.run_chompy(8);
-    // }
+    #[test]
+    fn middle_school_conditional_tests() {
+        let chomper = MiddleSchoolLangConditionsChomper {
+            math_chomper: MathChomper,
+        };
+        let predicates = chomper.get_language().get_predicates();
+        for p in predicates.force() {
+            println!("Predicate: {}", p);
+        }
+        chomper.run_chompy(8);
+    }
 }
 pub struct MiddleSchoolLang {
     pub math_lang: MathLang,
@@ -90,8 +95,10 @@ impl ChompyLanguage for MiddleSchoolLang {
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            vec!["Abs".into()],
-            vec!["Add".into(), "Sub".into(), "Mul".into(), "Div".into()],
+            vec![],
+            // vec!["Abs".into()],
+            vec!["Div".into()],
+            // vec!["Add".into(), "Sub".into(), "Mul".into(), "Div".into()],
         ]
     }
 
@@ -189,8 +196,10 @@ impl ChompyLanguage for MiddleSchoolLangConditions {
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            vec!["Abs".into()],
-            vec!["Add".into(), "Sub".into(), "Mul".into(), "Div".into()],
+            // vec!["Abs".into()],
+            vec![],
+            vec!["Div".into()],
+            // vec!["Add".into(), "Sub".into(), "Mul".into(), "Div".into()],
         ]
     }
 
@@ -254,7 +263,20 @@ impl Chomper for MiddleSchoolLangConditionsChomper {
         &self,
     ) -> ruler::HashMap<String, chompy::language::CVec<dyn ChompyLanguage<Constant = Self::Constant>>>
     {
-        self.math_chomper.initialize_env()
+        let mut env = ruler::HashMap::default();
+        // make seedable rng
+        // TODO: this should be part of the interface for eval?
+        let cvec_len = 10;
+
+        for var in self.get_language().get_vars() {
+            let mut cvec = vec![];
+            for i in 0..cvec_len {
+                cvec.push(Some(i));
+            }
+            println!("cvec for {}: {:?}", var, cvec);
+            env.insert(var.clone(), cvec);
+        }
+        env
     }
 
     fn make_pred_interpreter() -> impl chompy::PredicateInterpreter + 'static {

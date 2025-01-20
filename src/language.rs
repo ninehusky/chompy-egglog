@@ -501,7 +501,7 @@ impl ChompyLanguage for MathLang {
                     // above will not break this assertion.
                     assertions.push(const_var._eq(&const_var));
                 }
-                // there should also be assertions which make sure we don't generate
+                // there should also be one mega assertion which makes sure we don't generate
                 // the same model twice.
                 for env in env_caches.iter() {
                     for (var, val) in env {
