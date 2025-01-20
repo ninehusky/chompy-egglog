@@ -70,13 +70,14 @@ pub trait Chomper {
     /// Adds the given term to the e-graph.
     /// Optionally, sets the eclass id of the term to the given id.
     fn add_term(&self, term: &Sexp, egraph: &mut EGraph, eclass_id: Option<usize>) {
+        info!("adding term: {}", term);
         let term = format_sexp(term);
         let prog = format!("({} {})", UNIVERSAL_RELATION, term);
         egraph.parse_and_run_program(None, &prog).unwrap();
         if let Some(id) = eclass_id {
-            egraph
-                .parse_and_run_program(None, format!("(set (eclass {term}) {id})").as_str())
-                .unwrap();
+            let prog = format!("(set (eclass {term}) {id})", term = term, id = id);
+            info!("running program: {}", prog);
+            egraph.parse_and_run_program(None, &prog).unwrap();
         }
     }
 
@@ -105,11 +106,10 @@ pub trait Chomper {
 
         let prog = format!("{prog}\n(print-stats)\n");
 
+        info!("running rewrites: {}", prog);
+
         let results = egraph.parse_and_run_program(None, &prog).unwrap();
-        // println!("STATS:");
-        for stat in results {
-            // println!("{}", stat);
-        }
+        log_rewrite_stats(results);
     }
 
     /// Returns a map from e-class id to a candidate term in the e-class.
@@ -313,13 +313,13 @@ pub trait Chomper {
         let mut old_workload = atoms.clone();
         let mut max_eclass_id: usize = 1;
         for size in 1..=max_size {
-            println!("size: {}", size);
+            info!("CONSIDERING PROGRAMS OF SIZE {}:", size);
             let new_workload = atoms.clone().append(
                 language
                     .produce(&old_workload.clone())
                     .filter(Filter::MetricEq(Metric::Atoms, size)),
             );
-            println!("workload len: {}", new_workload.force().len());
+            info!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
                 max_eclass_id += 1;
@@ -332,9 +332,9 @@ pub trait Chomper {
             }
             let mut seen_rules: HashSet<String> = Default::default();
             loop {
-                println!("running rewrites...");
+                info!("trying to merge new terms using existing rewrites...");
                 self.run_rewrites(&mut egraph, None);
-                println!("i'm done running rewrites");
+                info!("i'm done running rewrites");
 
                 let candidates = self
                     .cvec_match(&mut egraph, &pvecs, &env)
@@ -362,6 +362,7 @@ pub trait Chomper {
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });
                     if valid == ValidationResult::Valid && !derivable {
                         let rule = language.generalize_rule(&rule.clone());
+                        info!("rule: {}", rule);
                         println!("rule: {}", rule);
                         rules.push(rule.clone());
                         self.add_rewrite(&mut egraph, &rule);
@@ -477,6 +478,26 @@ pub fn all_variables_bound(rule: &Rule) -> bool {
         .all(|var| lhs_vars.contains(var))
 }
 
+fn log_rewrite_stats(outputs: Vec<String>) {
+    fn chop_off_seconds(s: &str) -> f64 {
+        s.split('s').next().unwrap().parse().unwrap()
+    }
+
+    let long_time = 0.0001;
+    let last_two = outputs.iter().rev().take(2).collect::<Vec<&String>>();
+    for line in last_two.iter().rev() {
+        // the last, third to last, and fifth to last tokens are the relevant ones.
+        let tokens = line.split_whitespace().collect::<Vec<&str>>();
+        let rebuild_time = chop_off_seconds(tokens.last().unwrap());
+        let apply_time = chop_off_seconds(tokens[tokens.len() - 3]);
+        let search_time = chop_off_seconds(tokens[tokens.len() - 5]);
+        if search_time > long_time || apply_time > long_time || rebuild_time > long_time {
+            info!("Running rewrites took a long time!");
+            info!("Egglog output:");
+            info!("{}", line);
+        }
+    }
+}
 /// A sample implementation of the Chomper trait for the MathLang language.
 pub struct MathChomper;
 
