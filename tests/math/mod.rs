@@ -10,6 +10,7 @@ pub mod tests {
 
     #[test]
     fn check_math_rules() {
+        env_logger::init();
         let chomper = MathChomper;
         let predicates = chomper.get_language().get_predicates();
         let values = chomper.get_language().get_vals();
@@ -40,4 +41,3 @@ pub mod tests {
         );
     }
 }
-
