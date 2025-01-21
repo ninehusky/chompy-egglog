@@ -551,6 +551,7 @@ impl ChompyLanguage for MathLang {
                 concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
             }
         }
+        info!("concretized rules for {}: {:?}", rule, concretized_rules);
         concretized_rules
     }
 
