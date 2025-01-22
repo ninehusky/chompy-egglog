@@ -296,10 +296,9 @@ pub trait Chomper {
                 format!(
                     r#"
                     (rule
-                      (({UNIVERSAL_RELATION} {lhs}))
-                      ((let temp (ite {cond} {rhs} {lhs}))
-                       ({UNIVERSAL_RELATION} temp)
-                       (union {lhs} temp))
+                      (({UNIVERSAL_RELATION} {lhs})
+                       (= (Condition {cond}) (TRUE)))
+                       ((union {lhs} {rhs}))
                       :ruleset cond-rewrites)
                     "#
                 )

@@ -225,14 +225,29 @@ pub trait ChompyLanguage {
 (function Const ({const_type}) {name})
 (function Var (String) {name})
 {func_defs_str}
+
 (function eclass ({name}) i64 :merge (min old new))
 (relation universe ({name}))
 (relation cond-equal ({name} {name}))
+
+(datatype Predicate
+    (TRUE)
+    (Condition {name}))
+
+(relation Implies (Predicate Predicate))
+
 
 ;;; forward ruleset definitions
 (ruleset eclass-report)
 (ruleset non-cond-rewrites)
 (ruleset cond-rewrites)
+(ruleset condition-propogation)
+
+(rule
+    ((Implies ?a ?b)
+    (= ?a (TRUE)))
+    ((union ?b (TRUE)))
+    :ruleset condition-propogation)
 
 ;;; a "function", more or less, that prints out each e-class and its
 ;;; term.
