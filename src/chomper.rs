@@ -390,7 +390,7 @@ pub trait Chomper {
                 for rule in rules.iter() {
                     self.add_rewrite(&mut just_rewrite_egraph, rule);
                 }
-                candidates.sort_by(|a, b| a.cmp(b));
+                candidates.sort();
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
                     let rule = language.generalize_rule(&rule.clone());

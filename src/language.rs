@@ -420,6 +420,7 @@ impl ChompyLanguage for MathLang {
         rule: &Rule,
         env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
     ) -> Vec<(Sexp, Sexp)> {
+        info!("now concretizing rule: {}", rule);
         fn subst(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
             match sexp {
                 Sexp::Atom(a) => {
@@ -465,11 +466,22 @@ impl ChompyLanguage for MathLang {
             }
         }
 
-        if let Some(cached) = env_cache.get(&(rule.lhs.to_string(), rule.rhs.to_string())) {
-            return cached
-                .iter()
-                .map(|env| (subst(&rule.lhs, env), subst(&rule.rhs, env)))
-                .collect();
+        if let Some(cond) = &rule.condition {
+            if let Some(cached) = env_cache.get(&(
+                rule.condition.clone().unwrap().to_string(),
+                rule.lhs.to_string(),
+            )) {
+                info!("cache hit for : {:?}", rule);
+                let result: Vec<(Sexp, Sexp)> = cached
+                    .iter()
+                    .map(|env| (subst(&rule.lhs, env), subst(&rule.rhs, env)))
+                    .collect();
+                info!("cached concretized rules for {}", rule);
+                for (lhs, rhs) in result.iter() {
+                    info!("{} ~> {}", lhs, rhs);
+                }
+                return result;
+            }
         }
 
         let num_concretized_rules = 10;
@@ -485,6 +497,7 @@ impl ChompyLanguage for MathLang {
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
         if let Some(cond) = &rule.condition {
+            info!("concretizing rule with condition: {:?}", cond);
             // this is trickier. we need to assign values to the variables such that the condition
             // holds.
             let one = z3::ast::Int::from_i64(&ctx, 1);
@@ -516,6 +529,8 @@ impl ChompyLanguage for MathLang {
                 for assertion in &assertions {
                     solver.assert(assertion);
                 }
+
+                info!("assertions: {:?}", assertions);
                 if let z3::SatResult::Sat = solver.check() {
                     let model = solver.get_model().unwrap();
                     info!("model: {:?}", model.to_string());
@@ -533,7 +548,10 @@ impl ChompyLanguage for MathLang {
                     env_caches.push(env.clone());
                     concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
                     env_cache.insert(
-                        (rule.lhs.to_string(), rule.rhs.to_string()),
+                        (
+                            rule.condition.clone().unwrap().to_string(),
+                            rule.lhs.to_string(),
+                        ),
                         env_caches.clone(),
                     );
                 } else {
@@ -552,6 +570,7 @@ impl ChompyLanguage for MathLang {
             }
         }
         info!("concretized rules for {}: {:?}", rule, concretized_rules);
+        assert!(concretized_rules.len() == num_concretized_rules);
         concretized_rules
     }
 
