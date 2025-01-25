@@ -234,20 +234,13 @@ pub trait ChompyLanguage {
     (TRUE)
     (Condition {name}))
 
-(relation Implies (Predicate Predicate))
 
 
 ;;; forward ruleset definitions
 (ruleset eclass-report)
 (ruleset non-cond-rewrites)
 (ruleset cond-rewrites)
-(ruleset condition-propogation)
-
-(rule
-    ((Implies ?a ?b)
-    (= ?a (TRUE)))
-    ((union ?b (TRUE)))
-    :ruleset condition-propogation)
+(ruleset condition-propagation)
 
 ;;; a "function", more or less, that prints out each e-class and its
 ;;; term.
@@ -738,7 +731,7 @@ impl ChompyLanguage for MathLang {
 
 /// Converts the given `MathLang` term to a `z3::ast::Int`. This function is useful for
 /// validating rules in the `MathLang` language.
-fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::Int<'a> {
+pub fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::Int<'a> {
     let zero = z3::ast::Int::from_i64(ctx, 0);
     let one = z3::ast::Int::from_i64(ctx, 1);
     match math_lang {
