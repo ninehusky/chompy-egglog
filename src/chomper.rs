@@ -118,7 +118,7 @@ pub trait Chomper {
         }
     }
 
-    /// Runs the existing set of `non-cond-rewrites` and `cond-rewrites` in the e-graph
+    /// Runs the existing set of `total-rewrites` and `cond-rewrites` in the e-graph
     /// for the given number of iterations. If no number of iterations is given, the rewrites
     /// are run until saturation.
     fn run_rewrites(&self, egraph: &mut EGraph, iters: Option<usize>) {
@@ -127,7 +127,7 @@ pub trait Chomper {
                 r#"
                 (run-schedule
                     (repeat {limit}
-                        (run non-cond-rewrites)
+                        (run total-rewrites)
                         (run cond-rewrites)))
                 "#
             )
@@ -135,7 +135,7 @@ pub trait Chomper {
         } else {
             r#"
                 (run-schedule
-                    (saturate non-cond-rewrites)
+                    (saturate total-rewrites)
                     (saturate cond-rewrites))
                 "#
             .to_string()
@@ -287,7 +287,7 @@ pub trait Chomper {
                       (({UNIVERSAL_RELATION} {lhs}))
                       (({UNIVERSAL_RELATION} {rhs})
                        (union {lhs} {rhs}))
-                      :ruleset non-cond-rewrites)
+                      :ruleset total-rewrites)
                     "#
                 )
             }

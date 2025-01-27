@@ -231,7 +231,7 @@ pub trait ChompyLanguage {
 
 ;;; forward ruleset definitions
 (ruleset eclass-report)
-(ruleset non-cond-rewrites)
+(ruleset total-rewrites)
 (ruleset cond-rewrites)
 
 ;;; a "function", more or less, that prints out each e-class and its
