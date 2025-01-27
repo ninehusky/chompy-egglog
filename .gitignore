@@ -33,3 +33,5 @@ Cargo.lock
 diary.md
 
 .z3-trace
+
+venv/
