@@ -166,11 +166,25 @@ pub trait Chomper {
                 (saturate eclass-report))
             (pop)
         "#;
+        let size_prog = egraph.parse_and_run_program(None, "(print-size)").unwrap();
+        println!("EGRAPH SIZE BEFORE ECLASS REPORT:");
+        for line in size_prog {
+            println!("{}", line);
+        }
+
         let mut outputs = egraph
             .parse_and_run_program(None, eclass_report_prog)
             .unwrap()
             .into_iter()
             .peekable();
+
+        let size_prog = egraph.parse_and_run_program(None, "(print-size)").unwrap();
+
+        println!("EGRAPH SIZE AFTER ECLASS REPORT:");
+        for line in size_prog {
+            println!("{}", line);
+        }
+
         let mut eclass_term_map = HashMap::default();
         while outputs.peek().is_some() {
             outputs.next().unwrap();
@@ -256,6 +270,11 @@ pub trait Chomper {
         let eclass_term_map = self.get_eclass_term_map(egraph);
         let mut candidate_rules = vec![];
         let ec_keys: Vec<&usize> = eclass_term_map.keys().collect();
+
+        println!(
+            "how many eclasses do we have? well, we have {} eclasses",
+            ec_keys.len()
+        );
 
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
@@ -528,15 +547,20 @@ pub trait Chomper {
         for term in atoms.force() {
             self.add_term(&term, &mut egraph, None);
         }
-        let mut old_workload = atoms.clone();
         let mut max_eclass_id: usize = 1;
+
+        // chompy does not consider terms with constants as subterms after programs
+        // the size exceeds a certain threshold.
+        let const_threshold = 5;
+
         for size in 1..=max_size {
             println!("CONSIDERING PROGRAMS OF SIZE {}:", size);
-            let new_workload = atoms.clone().append(
-                language
-                    .produce(&old_workload.clone())
-                    .filter(Filter::MetricEq(Metric::Atoms, size)),
-            );
+            let mut new_workload = atoms.clone().append(language.produce(size));
+
+            if size > const_threshold {
+                new_workload = new_workload.filter(Filter::Excludes("Const".parse().unwrap()));
+            }
+
             println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
@@ -545,13 +569,10 @@ pub trait Chomper {
                     panic!("max eclass id reached");
                 }
             }
-            if !new_workload.force().is_empty() {
-                old_workload = new_workload;
-            }
             let mut seen_rules: HashSet<String> = Default::default();
             loop {
                 info!("trying to merge new terms using existing rewrites...");
-                self.run_rewrites(&mut egraph, None);
+                self.run_rewrites(&mut egraph, Some(7));
                 info!("i'm done running rewrites");
 
                 let mut candidates = self

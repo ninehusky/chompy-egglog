@@ -5,6 +5,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use ruler::{
     enumo::{Sexp, Workload},
+    recipe_utils::iter_metric,
     HashMap,
 };
 
@@ -148,21 +149,28 @@ pub trait ChompyLanguage {
     ///  MathLang::from(x.clone())).collect::<Vec<MathLang>>();
     ///  assert_eq!(expected, actual);
     /// ```
-    fn produce(&self, old_workload: &Workload) -> Workload {
-        let mut result_workload = Workload::empty();
-        let funcs = self.get_funcs();
-        for arity in 0..funcs.len() {
-            let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
-            let funcs = Workload::new(funcs[arity].clone());
+    /// TODO: we can probably get away with just using `iter_metric` instead of
+    /// rewriting this subroutine that just ends up calling `iter_metric` anyway.
+    fn produce(&self, size: usize) -> Workload {
+        let mut funcs_and_atoms: Workload = Workload::empty();
+        // add all the base atoms.
+        funcs_and_atoms = Workload::append(funcs_and_atoms, self.base_atoms());
 
-            result_workload = Workload::append(
-                result_workload,
-                Workload::new(&[sketch.to_string()])
-                    .plug("FUNC", &funcs)
-                    .plug("EXPR", old_workload),
-            );
+        // add all the functions.
+        for arity in 0..self.get_funcs().len() {
+            let funcs = self.get_funcs()[arity].clone();
+            let mut new_workload = Workload::empty();
+            for func in funcs {
+                let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
+                new_workload = Workload::append(
+                    new_workload,
+                    Workload::new(&[sketch.to_string()]).plug("FUNC", &Workload::new(&[func])),
+                );
+            }
+            funcs_and_atoms = Workload::append(funcs_and_atoms, new_workload);
         }
-        result_workload
+
+        iter_metric(funcs_and_atoms, "EXPR", ruler::enumo::Metric::Atoms, size)
     }
 
     /// Returns the base set of atoms in the language.
