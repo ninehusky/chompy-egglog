@@ -62,7 +62,10 @@ One example of a bad rule which disobeys the above restriction is:
 
 "(Add ?a ?b) ~> a + b"
 
-Your job is to output rewrite rules, one on each line, about a math domain. Note that conditions in the conditional rules
+Your job is to output rewrite rules, one on each line, about a math domain. Do not include any other text. Do not respond
+with "Sure, here are the rules" or anything else. Do not include numbers before the rules.
+
+Note that conditions in the conditional rules
 should not be tautological, i.e., they should not always be true or always be false. Moreover, you should not include
 any auxiliary or explanatory text. Your response should just be a list of rules, one rule per line.
 
@@ -75,7 +78,7 @@ Go!
 """
 
 completion = client.chat.completions.create(
-    model="gpt-4o-mini",
+    model="gpt-4o",
     messages=[
         {"role": "system", "content": SYSTEM_CONTENT},
         {
