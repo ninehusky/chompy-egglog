@@ -310,44 +310,66 @@ pub enum MathLang {
     Neq(Box<MathLang>, Box<MathLang>),
 }
 
-impl From<Sexp> for MathLang {
-    fn from(sexp: Sexp) -> Self {
+// TODO: test this with doctest before merging.
+impl TryFrom<Sexp> for MathLang {
+    type Error = String;
+    fn try_from(sexp: Sexp) -> Result<MathLang, String> {
         match sexp {
+            // TODO: fix this.
+            Sexp::Atom(a) => return Ok(MathLang::Var(a)),
             Sexp::List(l) => {
                 let op = l[0].to_string();
-                match op.as_str() {
-                    "Const" => MathLang::Const(l[1].to_string().parse().unwrap()),
-                    "Var" => MathLang::Var(l[1].to_string()),
-                    "Abs" => MathLang::Abs(Box::new(MathLang::from(l[1].clone()))),
-                    "Neg" => MathLang::Neg(Box::new(MathLang::from(l[1].clone()))),
-                    "Add" => MathLang::Add(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    "Sub" => MathLang::Sub(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    "Mul" => MathLang::Mul(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    "Div" => MathLang::Div(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    "Gt" => MathLang::Gt(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    "Neq" => MathLang::Neq(
-                        Box::new(MathLang::from(l[1].clone())),
-                        Box::new(MathLang::from(l[2].clone())),
-                    ),
-                    _ => unreachable!(),
+                if op == "Const" {
+                    let result: Result<i64, ()> = l[1].to_string().parse().map_err(|_| ());
+                    if result.is_err() {
+                        return Err("error parsing constant".parse().unwrap());
+                    }
+                    return Ok(MathLang::Const(result.unwrap()));
+                } else if op == "Var" {
+                    if l.len() != 2 {
+                        return Err("variable should have arity 1".parse().unwrap());
+                    }
+                    return Ok(MathLang::Var(l[1].to_string()));
+                } else {
+                    let children = &l[1..]
+                        .iter()
+                        .map(|x| MathLang::try_from(x.clone()))
+                        .collect::<Vec<_>>();
+
+                    if children.iter().any(|x| x.is_err()) {
+                        return Err("error parsing children".parse().unwrap());
+                    }
+
+                    let children = children
+                        .iter()
+                        .map(|x| x.clone().unwrap())
+                        .collect::<Vec<_>>();
+
+                    Ok(match op.as_str() {
+                        "Abs" => MathLang::Abs(children[0].clone().into()),
+                        "Neg" => MathLang::Neg(children[0].clone().into()),
+                        "Add" => {
+                            MathLang::Add(children[0].clone().into(), children[1].clone().into())
+                        }
+                        "Sub" => {
+                            MathLang::Sub(children[0].clone().into(), children[1].clone().into())
+                        }
+                        "Mul" => {
+                            MathLang::Mul(children[0].clone().into(), children[1].clone().into())
+                        }
+                        "Div" => {
+                            MathLang::Div(children[0].clone().into(), children[1].clone().into())
+                        }
+                        "Gt" => {
+                            MathLang::Gt(children[0].clone().into(), children[1].clone().into())
+                        }
+                        "Neq" => {
+                            MathLang::Neq(children[0].clone().into(), children[1].clone().into())
+                        }
+                        _ => return Err("not supported operation".parse().unwrap()),
+                    })
                 }
             }
-            _ => unreachable!(),
         }
     }
 }
@@ -380,10 +402,10 @@ impl ChompyLanguage for MathLang {
         cfg.set_timeout_msec(1000);
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
-        let lhs = mathlang_to_z3(&ctx, &MathLang::from(rule.lhs.clone()));
-        let rhs = mathlang_to_z3(&ctx, &MathLang::from(rule.rhs.clone()));
+        let lhs = mathlang_to_z3(&ctx, &MathLang::try_from(rule.lhs.clone()).unwrap());
+        let rhs = mathlang_to_z3(&ctx, &MathLang::try_from(rule.rhs.clone()).unwrap());
         if rule.condition.is_some() {
-            let cond = MathLang::from(rule.condition.clone().unwrap());
+            let cond = MathLang::try_from(rule.condition.clone().unwrap()).unwrap();
             let cond_expr = mathlang_to_z3(&ctx, &cond);
             let zero = z3::ast::Int::from_i64(&ctx, 0);
             let cond = z3::ast::Bool::not(&cond_expr._eq(&zero));
@@ -505,7 +527,11 @@ impl ChompyLanguage for MathLang {
                 // assert(cond)
                 let mut assertions: Vec<z3::ast::Bool> = vec![];
                 assertions.push(
-                    mathlang_to_z3(&ctx, &MathLang::from(degeneralize(&cond.clone())))._eq(&one),
+                    mathlang_to_z3(
+                        &ctx,
+                        &MathLang::try_from(degeneralize(&cond.clone())).unwrap(),
+                    )
+                    ._eq(&one),
                 );
                 // push some dummy assertions just to get all variables in scope.
                 for var in &vars {
@@ -520,7 +546,10 @@ impl ChompyLanguage for MathLang {
                     for (var, val) in env {
                         assertions.push(
                             z3::ast::Int::new_const(&ctx, var.clone())
-                                ._eq(&mathlang_to_z3(&ctx, &MathLang::from(val.clone())))
+                                ._eq(&mathlang_to_z3(
+                                    &ctx,
+                                    &MathLang::try_from(val.clone()).unwrap(),
+                                ))
                                 .not(),
                         );
                     }
@@ -647,7 +676,7 @@ impl ChompyLanguage for MathLang {
     // TODO: include CVEC_LEN here
     fn eval(&self, sexp: &Sexp, env: &HashMap<String, CVec<Self>>) -> CVec<Self> {
         let cvec_len = 10;
-        let term = MathLang::from(sexp.clone());
+        let term = MathLang::try_from(sexp.clone()).unwrap();
         let result = match term {
             MathLang::Const(c) => vec![Some(c); cvec_len],
             MathLang::Var(v) => {

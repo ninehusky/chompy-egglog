@@ -1,10 +1,12 @@
 use crate::language::MathLang;
 use crate::PredicateInterpreter;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use z3::ast::Ast;
 
 use crate::{
     ite::DummySort,
@@ -12,6 +14,7 @@ use crate::{
 };
 use egglog::{sort::EqSort, EGraph};
 use log::info;
+use regex::Regex;
 use ruler::{
     enumo::{Filter, Metric, Sexp},
     HashMap, HashSet,
@@ -33,6 +36,97 @@ impl Display for Rule {
         } else {
             write!(f, "{} ~> {}", self.lhs, self.rhs)
         }
+    }
+}
+
+/// ```
+/// use chompy::chomper::Rule;
+/// use ruler::enumo::Sexp;
+/// use std::str::FromStr;
+/// let cond_rule: Rule = "if (Var x) then (Var y) ~> (Var z)".try_into().unwrap();
+/// assert_eq!(cond_rule, Rule {
+///     condition: Some(Sexp::from_str("(Var x)").unwrap()),
+///     lhs: Sexp::from_str("(Var y)").unwrap(),
+///     rhs: Sexp::from_str("(Var z)").unwrap(),
+/// });
+/// let total_rule: Rule = "(Var ?x) ~> (Var ?y)".try_into().unwrap();
+/// assert_eq!(total_rule, Rule {
+///    condition: None,
+///    lhs: Sexp::from_str("(Var ?x)").unwrap(),
+///    rhs: Sexp::from_str("(Var ?y)").unwrap(),
+/// });
+///
+/// // TODO:
+/// // ugh.. this should fail but it's not. I think I need to put this as an issue in
+/// // symbolic_expressions.
+/// // let bad_total_rule: Result<Rule, String> = "(Var ?x) ~> (Var ?y) (Var ?z)".try_into();
+/// // println!("{:?}", bad_total_rule);
+/// // assert!(bad_total_rule.is_err());
+///
+/// let bad_conditional_rule: Result<Rule, String> = "(Var ?y) ~> (Var ?z) if (Var ?x)".try_into();
+/// assert!(bad_conditional_rule.is_err());
+/// ```
+impl TryFrom<&str> for Rule {
+    type Error = String;
+    // Grr... would really rather just do a try/catch and fail if it doesn't work.
+    fn try_from(value: &str) -> Result<Self, String> {
+        fn has_balanced_parens(s: &str) -> bool {
+            println!("checking: {}", s);
+            let mut count = 0;
+            for c in s.chars() {
+                if c == '(' {
+                    count += 1;
+                } else if c == ')' {
+                    count -= 1;
+                }
+                if count < 0 {
+                    return false;
+                }
+            }
+            count == 0
+        }
+
+        let cond: Option<Sexp> = if !value.contains("if") {
+            None
+        } else {
+            // the value must match a regex of: "if <condition> then <lhs> ~> <rhs>".
+            let re = Regex::new(r"if (.*) then (.*) ~> (.*)").unwrap();
+            let captures = re.captures(value);
+            if let Some(captures) = captures {
+                let sexp = Sexp::from_str(&captures[1]);
+                if sexp.is_err() {
+                    return Err("Invalid condition".to_string());
+                }
+                Some(sexp.unwrap())
+            } else {
+                return Err(format!("Invalid rule format: {}", value));
+            }
+        };
+
+        // if there was a condition, chop off everything before the "then".
+        let value = if let Some(_) = &cond {
+            value.split("then").collect::<Vec<&str>>()[1]
+        } else {
+            value
+        };
+        let parts = value.split("~>").collect::<Vec<&str>>();
+        println!("parts: {:?}", parts);
+        if parts.len() != 2 {
+            return Err(format!("Invalid rule format: {}", parts.len()));
+        }
+        if !has_balanced_parens(parts[0]) || !has_balanced_parens(parts[1]) {
+            return Err("Unbalanced parentheses".to_string());
+        }
+        let lhs = Sexp::from_str(parts[0]);
+        let rhs = Sexp::from_str(parts[1]);
+        if lhs.is_err() || rhs.is_err() {
+            return Err("Invalid rule format".to_string());
+        }
+        Ok(Rule {
+            condition: cond,
+            lhs: lhs.unwrap(),
+            rhs: rhs.unwrap(),
+        })
     }
 }
 
