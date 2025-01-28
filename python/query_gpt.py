@@ -8,6 +8,22 @@ SYSTEM_CONTENT = """
 You are a helpful assistant.
 
 Your job is to output rewrite rules, one on each line, about a math domain.
+
+The syntax for this language is defined by the following grammar:
+
+Math :=
+    (Const int)
+    (Var str)
+    (Add Math Math)
+    (Sub Math Math)
+    (Mul Math Math)
+    (Div Math Math)
+    (Abs Math)
+    (Gt Math Math)
+    (Lt Math Math)
+    (Eq Math Math)
+    (Neq Math Math)
+
 The semantics for this language is given by this interpreter:
 
 def interpret(expr, env) -> int:
@@ -19,10 +35,10 @@ def interpret(expr, env) -> int:
         (Mul a b) -> interpret(a, env) * interpret(b, env)
         (Div a b) -> if interpret(b, env) == 0: 0 else: interpret(a, env) // interpret(b, env)
         (Abs a) -> abs(interpret(a, env))
-        (Gt a b) -> 1 if interpret(a, env) > interpret(b, env) else 0
-        (Lt a b) -> 1 if interpret(a, env) < interpret(b, env) else 0
-        (Eq a b) -> 1 if interpret(a, env) == interpret(b, env) else 0
-        (Neq a b) -> 1 if interpret(a, env) != interpret(b, env) else 0
+        (Gt a b) -> if interpret(a, env) > interpret(b, env) 1 else 0
+        (Lt a b) -> if interpret(a, env) < interpret(b, env) 1 else 0
+        (Eq a b) -> if interpret(a, env) == interpret(b, env) 1 else 0
+        (Neq a b) -> if interpret(a, env) != interpret(b, env) 1 else 0
 
 Rules are given in one of two formats:
 "x ~> y" means that the expression x can be rewritten to y.
@@ -36,6 +52,8 @@ The "?a" means that any expression can be substituted in its place.
 Here is an example of a conditional rule:
 
 "if (Neq ?a (Const 0)) then (Div ?a ?a) ~> (Const 1)"
+
+Note that the "if" is at the beginning. Rules like "a ~> b if c" are not allowed.
 
 Observe that the condition and both sides of the rewrite are in the same language as the expressions.
 Also, observe that the "if" and "then" are not wrapped in parentheses.
