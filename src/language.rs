@@ -234,32 +234,62 @@ pub trait ChompyLanguage {
 (function Var (String) {name})
 {func_defs_str}
 
-(function eclass ({name}) i64 :merge (min old new))
-(relation universe ({name}))
-(relation cond-equal ({name} {name}))
-
 (datatype Predicate
     (TRUE)
     (Condition {name}))
 
+(datatype Cvec
+    (CvecId String))
+
+;;; note that these are NOT rewrite rules;
+;;; they're just likely candidates for rewrite rules.
+(datatype CandidateRule
+    (TotalRule {name} {name})
+    (ConditionalRule Predicate {name} {name}))
+
+(relation HasCvec ({name} Cvec))
+(relation ConditionallyEqual (Predicate Cvec Cvec))
+
+(function eclass ({name}) i64 :merge (min old new))
+(relation universe ({name}))
+(relation cond-equal ({name} {name}))
 
 
 ;;; forward ruleset definitions
-(ruleset eclass-report)
+(ruleset discover-candidates)
+
+;;; find total candidates
+(rule
+    ((HasCvec ?a ?c)
+     (HasCvec ?b ?c)
+     ;;; TODO: why do we need the below?
+     (!= ?a ?b))
+    ((TotalRule ?a ?b))
+    :ruleset discover-candidates)
+
+;;; find conditional candidates
+(rule
+    ((ConditionallyEqual ?p ?c1 ?c2)
+     (HasCvec ?t1 ?c1)
+     (HasCvec ?t2 ?c2))
+    ((ConditionalRule ?p ?t1 ?t2))
+    :ruleset discover-candidates)
+
+(ruleset print-candidates)
+(rule
+  ((TotalRule ?a ?b))
+  ((extract (TotalRule ?a ?b)))
+  :ruleset print-candidates)
+
+(rule
+  ((ConditionalRule ?p ?a ?b))
+  ((extract (ConditionalRule ?p ?a ?b)))
+  :ruleset print-candidates)
+
 (ruleset total-rewrites)
 (ruleset cond-rewrites)
 (ruleset condition-propagation)
 
-;;; a "function", more or less, that prints out each e-class and its
-;;; term.
-;;; i'm not 100% sure why this only runs once per e-class -- it's because
-;;; the (eclass ?term) can only be matched on once?
-(rule ((eclass ?term))
-      ((extract "eclass:")
-      (extract (eclass ?term))
-      (extract "candidate term:")
-      (extract ?term))
-      :ruleset eclass-report)
         "#
         );
         src.to_string()
