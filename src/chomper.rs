@@ -1,10 +1,12 @@
-use crate::language::MathLang;
+use crate::language::{mathlang_to_z3, MathLang};
 use crate::PredicateInterpreter;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use z3::ast::Ast;
 
 use crate::{
     ite::DummySort,
@@ -13,7 +15,7 @@ use crate::{
 use egglog::{sort::EqSort, EGraph};
 use log::info;
 use ruler::{
-    enumo::{Filter, Metric, Sexp},
+    enumo::{Filter, Sexp},
     HashMap, HashSet,
 };
 
@@ -75,7 +77,7 @@ impl Ord for Rule {
 
 /// Chompers manage the state of the e-graph.
 pub trait Chomper {
-    type Constant: Display + Debug + Clone + PartialEq;
+    type Constant: Display + Debug + Clone + PartialEq + Hash + Eq;
     fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>>;
 
     fn make_pred_interpreter() -> impl PredicateInterpreter + 'static;
@@ -101,6 +103,12 @@ pub trait Chomper {
         egraph
             .parse_and_run_program(None, &self.get_language().to_egglog_src())
             .unwrap();
+
+        for implication_prog in self.predicate_implication_ruleset() {
+            egraph
+                .parse_and_run_program(None, &implication_prog.to_string())
+                .unwrap();
+        }
         egraph
     }
 
@@ -146,6 +154,7 @@ pub trait Chomper {
         info!("running rewrites: {}", prog);
 
         let results = egraph.parse_and_run_program(None, &prog).unwrap();
+
         log_rewrite_stats(results);
     }
 
@@ -157,11 +166,13 @@ pub trait Chomper {
                 (saturate eclass-report))
             (pop)
         "#;
+
         let mut outputs = egraph
             .parse_and_run_program(None, eclass_report_prog)
             .unwrap()
             .into_iter()
             .peekable();
+
         let mut eclass_term_map = HashMap::default();
         while outputs.peek().is_some() {
             outputs.next().unwrap();
@@ -171,6 +182,70 @@ pub trait Chomper {
             eclass_term_map.insert(eclass.try_into().unwrap(), term);
         }
         eclass_term_map
+    }
+
+    fn validate_implication(&self, p1: &Sexp, p2: &Sexp) -> bool;
+
+    /// Returns a vector of Egglog rules, i.e., Egglog programs.
+    fn predicate_implication_ruleset(&self) -> Vec<String> {
+        fn generalize_predicate(sexp: &Sexp, vars: Vec<String>) -> Sexp {
+            match sexp {
+                Sexp::Atom(a) => {
+                    if vars.contains(a) {
+                        Sexp::from_str(&format!("?{}", a)).unwrap()
+                    } else {
+                        sexp.clone()
+                    }
+                }
+                Sexp::List(l) => Sexp::List(
+                    l.iter()
+                        .map(|s| generalize_predicate(s, vars.clone()))
+                        .collect(),
+                ),
+            }
+        }
+
+        // I don't know if this is smart.
+        let predicates: Vec<Sexp> = self
+            .get_language()
+            .get_predicates()
+            .filter(Filter::Canon(self.get_language().get_vars()))
+            .force();
+
+        let mut result: Vec<String> = vec![];
+
+        let vars = self.get_language().get_vars();
+
+        // go pairwise
+        for p in &predicates {
+            for q in &predicates {
+                // creating dummy rule to ensure
+                if p == q
+                    || !all_variables_bound(&Rule {
+                        condition: None,
+                        lhs: p.clone(),
+                        rhs: q.clone(),
+                    })
+                {
+                    continue;
+                }
+
+                // if p => q, then add (p -> q) to the list of implications.
+                if self.validate_implication(p, q) {
+                    let p = generalize_predicate(p, vars.clone());
+                    let q = generalize_predicate(q, vars.clone());
+                    result.push(format!(
+                        r#"
+(rule
+    ((= (Condition {p}) (TRUE)))
+    ((union (Condition {q}) (TRUE)))
+    :ruleset condition-propagation)
+                    "#
+                    ));
+                }
+            }
+        }
+        result
     }
 
     /// Returns a vector of candidate rules between e-classes in the e-graph.
@@ -184,12 +259,32 @@ pub trait Chomper {
         let mut candidate_rules = vec![];
         let ec_keys: Vec<&usize> = eclass_term_map.keys().collect();
 
+        info!("number of e-classes: {}", ec_keys.len());
+
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
             let term1 = eclass_term_map.get(ec1).unwrap();
+            // TODO:
+            // if term1 = (Const x) {
+            //     continue;
+            // }
+            if let Sexp::List(l) = term1 {
+                if l[0] == Sexp::Atom("Const".to_string()) {
+                    continue;
+                }
+            }
             let cvec1 = self.get_language().eval(term1, env);
+            // if all terms in the cvec are equal, cotinue.
+            if cvec1.iter().all(|x| x == cvec1.first().unwrap()) {
+                continue;
+            }
             for ec2 in ec_keys.iter().skip(i + 1) {
                 let term2 = eclass_term_map.get(ec2).unwrap();
+                if let Sexp::List(l) = term2 {
+                    if l[0] == Sexp::Atom("Const".to_string()) {
+                        continue;
+                    }
+                }
                 let cvec2 = self.get_language().eval(term2, env);
                 if cvec1 == cvec2 {
                     // we add (l ~> r) and (r ~> l) as candidate rules, because
@@ -215,7 +310,39 @@ pub trait Chomper {
                     if mask.iter().all(|x| *x) {
                         panic!("cvec1 != cvec2, yet we have a mask of all true");
                     }
+
                     if mask.iter().all(|x| !x) {
+                        continue;
+                    }
+
+                    // if under the mask, all of cvec1 is the same value, then skip.
+                    let cvec1_vals_under_pred = cvec1
+                        .iter()
+                        .zip(mask.iter())
+                        .filter(|(_, &b)| b)
+                        .map(|(x, _)| x.clone())
+                        .collect::<Vec<_>>();
+
+                    let cvec2_vals_under_pred = cvec2
+                        .iter()
+                        .zip(mask.iter())
+                        .filter(|(_, &b)| b)
+                        .map(|(x, _)| x.clone())
+                        .collect::<Vec<_>>();
+
+                    // TODO: make this happen conditionally via a flag
+                    // get num of unique values under the predicate.
+                    let num_unique_vals =
+                        cvec1_vals_under_pred.iter().collect::<HashSet<_>>().len();
+
+                    if num_unique_vals == 1 {
+                        continue;
+                    }
+
+                    let num_unique_vals =
+                        cvec2_vals_under_pred.iter().collect::<HashSet<_>>().len();
+
+                    if num_unique_vals == 1 {
                         continue;
                     }
 
@@ -244,36 +371,86 @@ pub trait Chomper {
         &self,
     ) -> HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>;
 
+    fn run_condition_propagation(&self, egraph: &mut EGraph, iters: Option<usize>) {
+        if let Some(iters) = iters {
+            egraph
+                .parse_and_run_program(
+                    None,
+                    &format!(
+                        "(run-schedule (repeat {iters} (run condition-propagation)))",
+                        iters = iters
+                    ),
+                )
+                .unwrap();
+        } else {
+            egraph
+                .parse_and_run_program(None, "(run-schedule (saturate condition-propagation))")
+                .unwrap();
+        }
+    }
+
     /// Returns if the given rule can be derived from the ruleset within the given e-graph.
     /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
-    fn rule_is_derivable(
-        &self,
-        initial_egraph: &EGraph,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> bool {
+    fn rule_is_derivable(&self, initial_egraph: &EGraph, rule: &Rule) -> bool {
+        // TODO: make a cleaner implementation of below:
+        if let Some(cond) = &rule.condition {
+            if cond.to_string() == rule.lhs.to_string() {
+                info!(
+                    "skipping bad rule with bad form of if c then c ~> r : {}",
+                    rule
+                );
+                return true;
+            }
+        }
+
         info!("assessing rule: {}", rule);
 
-        // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
-        let terms: Vec<(Sexp, Sexp)> = self.get_language().concretize_rule(rule, env_cache);
-        const MAX_DERIVABILITY_ITERATIONS: usize = 7;
-        for (lhs, rhs) in terms {
-            let mut egraph = initial_egraph.clone();
-            self.add_term(&lhs, &mut egraph, None);
-            self.add_term(&rhs, &mut egraph, None);
-            let l_sexpr = format_sexp(&lhs);
-            let r_sexpr = format_sexp(&rhs);
-            self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
-            // self.run_rewrites(&mut egraph, None);
-            let result =
-                egraph.parse_and_run_program(None, &format!("(check (= {l_sexpr} {r_sexpr}))"));
-            if !result.is_ok() {
-                // the existing ruleset was unable to derive the equality.
-                return false;
+        fn simple_concretize(sexp: &Sexp) -> Sexp {
+            match sexp {
+                Sexp::Atom(a) => {
+                    if let Some(stripped) = a.strip_prefix("?") {
+                        Sexp::from_str(format!("(Var {})", stripped).as_str()).unwrap()
+                    } else {
+                        sexp.clone()
+                    }
+                }
+                Sexp::List(l) => Sexp::List(l.iter().map(simple_concretize).collect()),
             }
+        }
+
+        // terms is a vector of (lhs, rhs) pairs with NO variables--not even 1...
+
+        let lhs = simple_concretize(&rule.lhs);
+        let rhs = simple_concretize(&rule.rhs);
+        const MAX_DERIVABILITY_ITERATIONS: usize = 3;
+
+        let mut egraph = initial_egraph.clone();
+        self.add_term(&lhs, &mut egraph, None);
+        self.add_term(&rhs, &mut egraph, None);
+        if let Some(cond) = &rule.condition {
+            let cond = format_sexp(&simple_concretize(cond));
+            egraph
+                .parse_and_run_program(None, &format!("(union (Condition {cond}) (TRUE))"))
+                .unwrap();
+            self.run_condition_propagation(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+        }
+        self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+        let result = self.check_equality(&mut egraph, &lhs, &rhs);
+        if !result {
+            // the existing ruleset was unable to derive the equality.
+            return false;
         }
         // the existing ruleset was able to derive the equality on all the given examples.
         true
+    }
+
+    fn check_equality(&self, egraph: &mut EGraph, lhs: &Sexp, rhs: &Sexp) -> bool {
+        egraph
+            .parse_and_run_program(
+                None,
+                &format!("(check (= {} {}))", format_sexp(lhs), format_sexp(rhs)),
+            )
+            .is_ok()
     }
 
     fn add_rewrite(&self, egraph: &mut EGraph, rule: &Rule) {
@@ -296,10 +473,9 @@ pub trait Chomper {
                 format!(
                     r#"
                     (rule
-                      (({UNIVERSAL_RELATION} {lhs}))
-                      ((let temp (ite {cond} {rhs} {lhs}))
-                       ({UNIVERSAL_RELATION} temp)
-                       (union {lhs} temp))
+                      (({UNIVERSAL_RELATION} {lhs})
+                       (= (Condition {cond}) (TRUE)))
+                       ((union {lhs} {rhs}))
                       :ruleset cond-rewrites)
                     "#
                 )
@@ -339,7 +515,6 @@ pub trait Chomper {
         let mut egraph = self.get_initial_egraph();
 
         let env = self.initialize_env();
-        let env_cache = &mut HashMap::default();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
@@ -347,16 +522,21 @@ pub trait Chomper {
         for term in atoms.force() {
             self.add_term(&term, &mut egraph, None);
         }
-        let mut old_workload = atoms.clone();
         let mut max_eclass_id: usize = 1;
+
+        // chompy does not consider terms with constants as subterms after programs
+        // the size exceeds a certain threshold.
+        let const_threshold = 5;
+
         for size in 1..=max_size {
-            info!("CONSIDERING PROGRAMS OF SIZE {}:", size);
-            let new_workload = atoms.clone().append(
-                language
-                    .produce(&old_workload.clone())
-                    .filter(Filter::MetricEq(Metric::Atoms, size)),
-            );
-            info!("workload len: {}", new_workload.force().len());
+            println!("CONSIDERING PROGRAMS OF SIZE {}:", size);
+            let mut new_workload = atoms.clone().append(language.produce(size));
+
+            if size > const_threshold {
+                new_workload = new_workload.filter(Filter::Excludes("Const".parse().unwrap()));
+            }
+
+            println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
                 max_eclass_id += 1;
@@ -364,13 +544,10 @@ pub trait Chomper {
                     panic!("max eclass id reached");
                 }
             }
-            if !new_workload.force().is_empty() {
-                old_workload = new_workload;
-            }
             let mut seen_rules: HashSet<String> = Default::default();
             loop {
                 info!("trying to merge new terms using existing rewrites...");
-                self.run_rewrites(&mut egraph, None);
+                self.run_rewrites(&mut egraph, Some(7));
                 info!("i'm done running rewrites");
 
                 let mut candidates = self
@@ -385,6 +562,7 @@ pub trait Chomper {
                 {
                     break;
                 }
+                println!("NUM CANDIDATES: {}", candidates.len());
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 let mut just_rewrite_egraph = self.get_initial_egraph();
                 for rule in rules.iter() {
@@ -394,7 +572,7 @@ pub trait Chomper {
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
                     let rule = language.generalize_rule(&rule.clone());
-                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule, env_cache);
+                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule);
                     info!("candidate rule: {}", rule);
                     info!("validation result: {:?}", valid);
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });
@@ -521,7 +699,7 @@ fn log_rewrite_stats(outputs: Vec<String>) {
         s.split('s').next().unwrap().parse().unwrap()
     }
 
-    let long_time = 0.0001;
+    let long_time = 0.1;
     let last_two = outputs.iter().rev().take(2).collect::<Vec<&String>>();
     for line in last_two.iter().rev() {
         // the last, third to last, and fifth to last tokens are the relevant ones.
@@ -530,10 +708,13 @@ fn log_rewrite_stats(outputs: Vec<String>) {
         let apply_time = chop_off_seconds(tokens[tokens.len() - 3]);
         let search_time = chop_off_seconds(tokens[tokens.len() - 5]);
         if search_time > long_time || apply_time > long_time || rebuild_time > long_time {
-            info!("Running rewrites took a long time!");
-            info!("Egglog output:");
-            info!("{}", line);
+            info!("LONG TIME");
         }
+        // if search_time > long_time || apply_time > long_time || rebuild_time > long_time {
+        //
+        info!("Egglog output:");
+        info!("{}", line);
+        // }
     }
 }
 /// A sample implementation of the Chomper trait for the MathLang language.
@@ -541,6 +722,31 @@ pub struct MathChomper;
 
 impl Chomper for MathChomper {
     type Constant = i64;
+
+    fn validate_implication(&self, p1: &Sexp, p2: &Sexp) -> bool {
+        // TODO: Vivien suggests using Z3's incremental mode to avoid having to tear down and
+        // rebuild the context every time.
+        let p1: MathLang = p1.clone().into();
+        let p2: MathLang = p2.clone().into();
+        let mut cfg = z3::Config::new();
+        cfg.set_timeout_msec(1000);
+        let ctx = z3::Context::new(&cfg);
+        let solver = z3::Solver::new(&ctx);
+        let p1 = mathlang_to_z3(&ctx, &p1.clone());
+        let p2 = mathlang_to_z3(&ctx, &p2.clone());
+        let one = z3::ast::Int::from_i64(&ctx, 1);
+        let assert_prog = &z3::ast::Bool::implies(&p1._eq(&one), &p2._eq(&one));
+        solver.assert(assert_prog);
+        let result = solver.check();
+        match result {
+            z3::SatResult::Sat => true,
+            z3::SatResult::Unsat => false,
+            z3::SatResult::Unknown => {
+                info!("Z3 could not determine the validity of the implication.");
+                false
+            }
+        }
+    }
 
     fn make_pred_interpreter() -> impl crate::PredicateInterpreter {
         #[derive(Debug)]

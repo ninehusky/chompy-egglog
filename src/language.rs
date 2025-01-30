@@ -5,6 +5,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use ruler::{
     enumo::{Sexp, Workload},
+    recipe_utils::iter_metric,
     HashMap,
 };
 
@@ -148,21 +149,28 @@ pub trait ChompyLanguage {
     ///  MathLang::from(x.clone())).collect::<Vec<MathLang>>();
     ///  assert_eq!(expected, actual);
     /// ```
-    fn produce(&self, old_workload: &Workload) -> Workload {
-        let mut result_workload = Workload::empty();
-        let funcs = self.get_funcs();
-        for arity in 0..funcs.len() {
-            let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
-            let funcs = Workload::new(funcs[arity].clone());
+    /// TODO: we can probably get away with just using `iter_metric` instead of
+    /// rewriting this subroutine that just ends up calling `iter_metric` anyway.
+    fn produce(&self, size: usize) -> Workload {
+        let mut funcs_and_atoms: Workload = Workload::empty();
+        // add all the base atoms.
+        funcs_and_atoms = Workload::append(funcs_and_atoms, self.base_atoms());
 
-            result_workload = Workload::append(
-                result_workload,
-                Workload::new(&[sketch.to_string()])
-                    .plug("FUNC", &funcs)
-                    .plug("EXPR", old_workload),
-            );
+        // add all the functions.
+        for arity in 0..self.get_funcs().len() {
+            let funcs = self.get_funcs()[arity].clone();
+            let mut new_workload = Workload::empty();
+            for func in funcs {
+                let sketch = "(FUNC ".to_string() + &" EXPR ".repeat(arity) + ")";
+                new_workload = Workload::append(
+                    new_workload,
+                    Workload::new(&[sketch.to_string()]).plug("FUNC", &Workload::new(&[func])),
+                );
+            }
+            funcs_and_atoms = Workload::append(funcs_and_atoms, new_workload);
         }
-        result_workload
+
+        iter_metric(funcs_and_atoms, "EXPR", ruler::enumo::Metric::Atoms, size)
     }
 
     /// Returns the base set of atoms in the language.
@@ -225,20 +233,33 @@ pub trait ChompyLanguage {
 (function Const ({const_type}) {name})
 (function Var (String) {name})
 {func_defs_str}
+
 (function eclass ({name}) i64 :merge (min old new))
 (relation universe ({name}))
 (relation cond-equal ({name} {name}))
+
+(datatype Predicate
+    (TRUE)
+    (Condition {name}))
+
+
 
 ;;; forward ruleset definitions
 (ruleset eclass-report)
 (ruleset total-rewrites)
 (ruleset cond-rewrites)
+(ruleset condition-propagation)
 
 ;;; a "function", more or less, that prints out each e-class and its
 ;;; term.
 ;;; i'm not 100% sure why this only runs once per e-class -- it's because
 ;;; the (eclass ?term) can only be matched on once?
-(rule ((eclass ?term)) ((extract "eclass:") (extract (eclass ?term)) (extract "candidate term:") (extract ?term)) :ruleset eclass-report)
+(rule ((eclass ?term))
+      ((extract "eclass:")
+      (extract (eclass ?term))
+      (extract "candidate term:")
+      (extract ?term))
+      :ruleset eclass-report)
         "#
         );
         src.to_string()
@@ -467,10 +488,7 @@ impl ChompyLanguage for MathLang {
         }
 
         if let Some(cond) = &rule.condition {
-            if let Some(cached) = env_cache.get(&(
-                rule.condition.clone().unwrap().to_string(),
-                rule.lhs.to_string(),
-            )) {
+            if let Some(cached) = env_cache.get(&(cond.to_string(), rule.lhs.to_string())) {
                 info!("cache hit for : {:?}", rule);
                 let result: Vec<(Sexp, Sexp)> = cached
                     .iter()
@@ -574,14 +592,16 @@ impl ChompyLanguage for MathLang {
         concretized_rules
     }
 
+    // TODO: change back.
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            vec!["Abs".to_string(), "Neg".to_string()],
+            // vec!["Abs".to_string(), "Neg".to_string()],
+            vec!["Neg".to_string()],
             vec![
                 "Add".to_string(),
                 "Sub".to_string(),
-                "Mul".to_string(),
+                // "Mul".to_string(),
                 "Div".to_string(),
                 "Neq".to_string(),
                 "Gt".to_string(),
@@ -723,7 +743,7 @@ impl ChompyLanguage for MathLang {
 
 /// Converts the given `MathLang` term to a `z3::ast::Int`. This function is useful for
 /// validating rules in the `MathLang` language.
-fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::Int<'a> {
+pub fn mathlang_to_z3<'a>(ctx: &'a z3::Context, math_lang: &MathLang) -> z3::ast::Int<'a> {
     let zero = z3::ast::Int::from_i64(ctx, 0);
     let one = z3::ast::Int::from_i64(ctx, 1);
     match math_lang {
