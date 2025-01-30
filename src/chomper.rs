@@ -15,7 +15,7 @@ use crate::{
 use egglog::{sort::EqSort, EGraph};
 use log::info;
 use ruler::{
-    enumo::{Filter, Metric, Sexp},
+    enumo::{Filter, Sexp},
     HashMap, HashSet,
 };
 
@@ -166,24 +166,12 @@ pub trait Chomper {
                 (saturate eclass-report))
             (pop)
         "#;
-        let size_prog = egraph.parse_and_run_program(None, "(print-size)").unwrap();
-        println!("EGRAPH SIZE BEFORE ECLASS REPORT:");
-        for line in size_prog {
-            println!("{}", line);
-        }
 
         let mut outputs = egraph
             .parse_and_run_program(None, eclass_report_prog)
             .unwrap()
             .into_iter()
             .peekable();
-
-        let size_prog = egraph.parse_and_run_program(None, "(print-size)").unwrap();
-
-        println!("EGRAPH SIZE AFTER ECLASS REPORT:");
-        for line in size_prog {
-            println!("{}", line);
-        }
 
         let mut eclass_term_map = HashMap::default();
         while outputs.peek().is_some() {
@@ -243,9 +231,9 @@ pub trait Chomper {
                 }
 
                 // if p => q, then add (p -> q) to the list of implications.
-                if self.validate_implication(&p, &q) {
-                    let p = generalize_predicate(&p, vars.clone());
-                    let q = generalize_predicate(&q, vars.clone());
+                if self.validate_implication(p, q) {
+                    let p = generalize_predicate(p, vars.clone());
+                    let q = generalize_predicate(q, vars.clone());
                     result.push(format!(
                         r#"
 (rule
@@ -271,10 +259,7 @@ pub trait Chomper {
         let mut candidate_rules = vec![];
         let ec_keys: Vec<&usize> = eclass_term_map.keys().collect();
 
-        println!(
-            "how many eclasses do we have? well, we have {} eclasses",
-            ec_keys.len()
-        );
+        info!("number of e-classes: {}", ec_keys.len());
 
         for i in 0..ec_keys.len() {
             let ec1 = ec_keys[i];
@@ -406,12 +391,7 @@ pub trait Chomper {
 
     /// Returns if the given rule can be derived from the ruleset within the given e-graph.
     /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
-    fn rule_is_derivable(
-        &self,
-        initial_egraph: &EGraph,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> bool {
+    fn rule_is_derivable(&self, initial_egraph: &EGraph, rule: &Rule) -> bool {
         // TODO: make a cleaner implementation of below:
         if let Some(cond) = &rule.condition {
             if cond.to_string() == rule.lhs.to_string() {
@@ -428,8 +408,8 @@ pub trait Chomper {
         fn simple_concretize(sexp: &Sexp) -> Sexp {
             match sexp {
                 Sexp::Atom(a) => {
-                    if a.starts_with("?") {
-                        Sexp::from_str(format!("(Var {})", a[1..].to_string()).as_str()).unwrap()
+                    if let Some(stripped) = a.strip_prefix("?") {
+                        Sexp::from_str(format!("(Var {})", stripped).as_str()).unwrap()
                     } else {
                         sexp.clone()
                     }
@@ -447,8 +427,6 @@ pub trait Chomper {
         let mut egraph = initial_egraph.clone();
         self.add_term(&lhs, &mut egraph, None);
         self.add_term(&rhs, &mut egraph, None);
-        let l_sexpr = format_sexp(&lhs);
-        let r_sexpr = format_sexp(&rhs);
         if let Some(cond) = &rule.condition {
             let cond = format_sexp(&simple_concretize(cond));
             egraph
@@ -467,14 +445,12 @@ pub trait Chomper {
     }
 
     fn check_equality(&self, egraph: &mut EGraph, lhs: &Sexp, rhs: &Sexp) -> bool {
-        let res = egraph
+        egraph
             .parse_and_run_program(
                 None,
                 &format!("(check (= {} {}))", format_sexp(lhs), format_sexp(rhs)),
             )
-            .is_ok();
-        let log = egraph.parse_and_run_program(None, "(print-stats)").unwrap();
-        res
+            .is_ok()
     }
 
     fn add_rewrite(&self, egraph: &mut EGraph, rule: &Rule) {
@@ -539,7 +515,6 @@ pub trait Chomper {
         let mut egraph = self.get_initial_egraph();
 
         let env = self.initialize_env();
-        let env_cache = &mut HashMap::default();
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
@@ -597,7 +572,7 @@ pub trait Chomper {
                 for rule in &candidates[..] {
                     let valid = language.validate_rule(rule);
                     let rule = language.generalize_rule(&rule.clone());
-                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule, env_cache);
+                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule);
                     info!("candidate rule: {}", rule);
                     info!("validation result: {:?}", valid);
                     info!("is derivable? {}", if derivable { "yes" } else { "no" });
@@ -757,11 +732,11 @@ impl Chomper for MathChomper {
         cfg.set_timeout_msec(1000);
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
-        let p1 = mathlang_to_z3(&ctx, &MathLang::from(p1.clone()));
-        let p2 = mathlang_to_z3(&ctx, &MathLang::from(p2.clone()));
+        let p1 = mathlang_to_z3(&ctx, &p1.clone());
+        let p2 = mathlang_to_z3(&ctx, &p2.clone());
         let one = z3::ast::Int::from_i64(&ctx, 1);
         let assert_prog = &z3::ast::Bool::implies(&p1._eq(&one), &p2._eq(&one));
-        solver.assert(&assert_prog);
+        solver.assert(assert_prog);
         let result = solver.check();
         match result {
             z3::SatResult::Sat => true,

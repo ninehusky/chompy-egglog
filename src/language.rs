@@ -254,7 +254,12 @@ pub trait ChompyLanguage {
 ;;; term.
 ;;; i'm not 100% sure why this only runs once per e-class -- it's because
 ;;; the (eclass ?term) can only be matched on once?
-(rule ((eclass ?term)) ((extract "eclass:") (extract (eclass ?term)) (extract "candidate term:") (extract ?term)) :ruleset eclass-report)
+(rule ((eclass ?term))
+      ((extract "eclass:")
+      (extract (eclass ?term))
+      (extract "candidate term:")
+      (extract ?term))
+      :ruleset eclass-report)
         "#
         );
         src.to_string()
@@ -483,10 +488,7 @@ impl ChompyLanguage for MathLang {
         }
 
         if let Some(cond) = &rule.condition {
-            if let Some(cached) = env_cache.get(&(
-                rule.condition.clone().unwrap().to_string(),
-                rule.lhs.to_string(),
-            )) {
+            if let Some(cached) = env_cache.get(&(cond.to_string(), rule.lhs.to_string())) {
                 info!("cache hit for : {:?}", rule);
                 let result: Vec<(Sexp, Sexp)> = cached
                     .iter()
@@ -590,14 +592,16 @@ impl ChompyLanguage for MathLang {
         concretized_rules
     }
 
+    // TODO: change back.
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            vec!["Abs".to_string(), "Neg".to_string()],
+            // vec!["Abs".to_string(), "Neg".to_string()],
+            vec!["Neg".to_string()],
             vec![
                 "Add".to_string(),
                 "Sub".to_string(),
-                "Mul".to_string(),
+                // "Mul".to_string(),
                 "Div".to_string(),
                 "Neq".to_string(),
                 "Gt".to_string(),

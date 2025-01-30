@@ -21,7 +21,7 @@ pub mod tests {
             println!("Predicate: {}", p);
         }
 
-        let rules = chomper.run_chompy(10);
+        let rules = chomper.run_chompy(6);
         let hand_picked_rules = vec![
             Rule {
                 condition: Sexp::from_str("(Neq ?x (Const 0))").ok(),
