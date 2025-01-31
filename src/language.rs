@@ -1,5 +1,5 @@
 use core::str;
-use std::{collections::HashSet, fmt::Display, ops::Neg};
+use std::{collections::HashSet, fmt::Display, hash::Hash, ops::Neg};
 
 use rand::rngs::StdRng;
 use rand::Rng;
@@ -27,7 +27,7 @@ pub enum ValidationResult {
 
 /// An interface for languages.
 pub trait ChompyLanguage {
-    type Constant: Display + Clone;
+    type Constant: Display + Clone + Hash;
     /// Returns the name of the language.
     /// This will also be the name of the top-level `datatype`
     /// defining the language in the Egglog source.
@@ -48,15 +48,6 @@ pub trait ChompyLanguage {
     fn make_sexp(&self) -> Sexp;
 
     fn const_type_as_str(&self) -> String;
-
-    /// Given some rule `(l, r)`, returns a vector of `(l', r')` pairs where `l'` and `r'`
-    /// are `l` and `r` concretized with variables replaced by constants. `l'` must be
-    /// equivalent to `r'`.
-    fn concretize_rule(
-        &self,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> Vec<(Sexp, Sexp)>;
 
     /// Generalizes the given term by replacing variables with unique identifiers.
     /// These identifiers are just '?a', '?b', etc. The letter which is assigned to a variable
@@ -228,6 +219,7 @@ pub trait ChompyLanguage {
         let func_defs_str = func_defs.join("\n");
         let const_type = self.const_type_as_str();
 
+        // TODO: this is getting kind of big, maybe put this in a template.egg file?
         let src = format!(
             r#"
 (function Const ({const_type}) {name})
@@ -238,8 +230,6 @@ pub trait ChompyLanguage {
     (TRUE)
     (Condition {name}))
 
-(datatype Cvec
-    (CvecId String))
 
 ;;; note that these are NOT rewrite rules;
 ;;; they're just likely candidates for rewrite rules.
@@ -247,21 +237,32 @@ pub trait ChompyLanguage {
     (TotalRule {name} {name})
     (ConditionalRule Predicate {name} {name}))
 
-(relation HasCvec ({name} Cvec))
-(relation ConditionallyEqual (Predicate Cvec Cvec))
+;;; cvecs will just be represented with their hashes (i64).
+;;; TODO (@ninehusky): address the following:
+;;; cvec = i64 is not great, because if a cvec hashes to 0 (our default value for "no cvec"), then
+;;; we're in a pickle. but i don't think we'll run into that issue. on the rust side, we just need
+;;; to assert that hash(cvec) != 0.
+(relation HasCvecHash ({name} i64))
+(relation ConditionallyEqual (Predicate i64 i64))
 
-(function eclass ({name}) i64 :merge (min old new))
 (relation universe ({name}))
 (relation cond-equal ({name} {name}))
 
-
 ;;; forward ruleset definitions
+(ruleset find-no-cvec-terms)
+
+;;; extract the terms that don't have a cvec.
+(rule
+    ((HasCvecHash ?a 0))
+    ((extract ?a))
+    :ruleset find-no-cvec-terms)
+
 (ruleset discover-candidates)
 
 ;;; find total candidates
 (rule
-    ((HasCvec ?a ?c)
-     (HasCvec ?b ?c)
+    ((HasCvecHash ?a ?c)
+     (HasCvecHash ?b ?c)
      ;;; TODO: why do we need the below?
      (!= ?a ?b))
     ((TotalRule ?a ?b))
@@ -270,8 +271,8 @@ pub trait ChompyLanguage {
 ;;; find conditional candidates
 (rule
     ((ConditionallyEqual ?p ?c1 ?c2)
-     (HasCvec ?t1 ?c1)
-     (HasCvec ?t2 ?c2))
+     (HasCvecHash ?t1 ?c1)
+     (HasCvecHash ?t2 ?c2))
     ((ConditionalRule ?p ?t1 ?t2))
     :ruleset discover-candidates)
 
@@ -464,162 +465,6 @@ impl ChompyLanguage for MathLang {
         Workload::new(&["(BINOP EXPR EXPR)"])
             .plug("BINOP", &Workload::new(&["Neq", "Gt"]))
             .plug("EXPR", &Workload::new(atoms))
-    }
-
-    fn concretize_rule(
-        &self,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> Vec<(Sexp, Sexp)> {
-        info!("now concretizing rule: {}", rule);
-        fn subst(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
-            match sexp {
-                Sexp::Atom(a) => {
-                    if a.starts_with("?") {
-                        if let Some(val) = env.get(a) {
-                            return val.clone();
-                        }
-                        panic!("Variable not found in environment: {:?}", a);
-                    } else {
-                        sexp.clone()
-                    }
-                }
-                Sexp::List(l) => {
-                    let mut new_l: Vec<Sexp> = vec![];
-                    for t in l {
-                        new_l.push(subst(t, env));
-                    }
-                    Sexp::List(new_l)
-                }
-            }
-        }
-
-        // This is a hack. So sorry, everyone.
-        fn degeneralize(sexp: &Sexp) -> Sexp {
-            match sexp {
-                Sexp::Atom(a) => {
-                    if a.starts_with("?") {
-                        Sexp::List(vec![
-                            Sexp::Atom("Var".to_string()),
-                            Sexp::Atom(a.to_string()),
-                        ])
-                    } else {
-                        sexp.clone()
-                    }
-                }
-                Sexp::List(l) => {
-                    let mut new_l: Vec<Sexp> = vec![];
-                    for t in l {
-                        new_l.push(degeneralize(t));
-                    }
-                    Sexp::List(new_l)
-                }
-            }
-        }
-
-        if let Some(cond) = &rule.condition {
-            if let Some(cached) = env_cache.get(&(cond.to_string(), rule.lhs.to_string())) {
-                info!("cache hit for : {:?}", rule);
-                let result: Vec<(Sexp, Sexp)> = cached
-                    .iter()
-                    .map(|env| (subst(&rule.lhs, env), subst(&rule.rhs, env)))
-                    .collect();
-                info!("cached concretized rules for {}", rule);
-                for (lhs, rhs) in result.iter() {
-                    info!("{} ~> {}", lhs, rhs);
-                }
-                return result;
-            }
-        }
-
-        let num_concretized_rules = 10;
-        let vars: HashSet<String> = self.get_vars().into_iter().collect();
-
-        // caches that map variables to their corresponding values (all should be constants for
-        // now).
-        let mut env_caches: Vec<HashMap<String, Sexp>> = vec![];
-
-        let mut concretized_rules: Vec<(Sexp, Sexp)> = vec![];
-        let mut cfg = z3::Config::new();
-        cfg.set_timeout_msec(1000);
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
-        if let Some(cond) = &rule.condition {
-            info!("concretizing rule with condition: {:?}", cond);
-            // this is trickier. we need to assign values to the variables such that the condition
-            // holds.
-            let one = z3::ast::Int::from_i64(&ctx, 1);
-            for _ in 0..num_concretized_rules {
-                // assert(cond)
-                let mut assertions: Vec<z3::ast::Bool> = vec![];
-                assertions.push(
-                    mathlang_to_z3(&ctx, &MathLang::from(degeneralize(&cond.clone())))._eq(&one),
-                );
-                // push some dummy assertions just to get all variables in scope.
-                for var in &vars {
-                    let const_var = z3::ast::Int::new_const(&ctx, format!("?{}", var.clone()));
-                    // this assertion will always hold; a model which disproves the assertion
-                    // above will not break this assertion.
-                    assertions.push(const_var._eq(&const_var));
-                }
-                // there should also be assertions which make sure we don't generate
-                // the same model twice.
-                for env in env_caches.iter() {
-                    for (var, val) in env {
-                        assertions.push(
-                            z3::ast::Int::new_const(&ctx, var.clone())
-                                ._eq(&mathlang_to_z3(&ctx, &MathLang::from(val.clone())))
-                                .not(),
-                        );
-                    }
-                }
-                // now, send this to the solver.
-                for assertion in &assertions {
-                    solver.assert(assertion);
-                }
-
-                info!("assertions: {:?}", assertions);
-                if let z3::SatResult::Sat = solver.check() {
-                    let model = solver.get_model().unwrap();
-                    info!("model: {:?}", model.to_string());
-                    let mut env: HashMap<String, Sexp> = HashMap::default();
-                    for var in &vars {
-                        let val = model
-                            .eval(&z3::ast::Int::new_const(&ctx, format!("?{}", var.clone())))
-                            .unwrap()
-                            .as_i64()
-                            .unwrap();
-                        // want to make sure not adding extra ?
-                        assert!(!var.clone().starts_with("?"));
-                        env.insert(format!("?{}", var.clone()), self.make_val(val));
-                    }
-                    env_caches.push(env.clone());
-                    concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
-                    env_cache.insert(
-                        (
-                            rule.condition.clone().unwrap().to_string(),
-                            rule.lhs.to_string(),
-                        ),
-                        env_caches.clone(),
-                    );
-                } else {
-                    panic!("Couldn't find satisfiable model for condition: {:?}", cond);
-                }
-            }
-        } else {
-            let mut rng: StdRng = rand::SeedableRng::seed_from_u64(0xf00d4b0bacafe);
-            for _ in 0..num_concretized_rules {
-                let mut env: HashMap<String, Sexp> = HashMap::default();
-                for v in &vars {
-                    let val = rng.gen_range(-10..10);
-                    env.insert(format!("?{}", v.clone()), self.make_val(val));
-                }
-                concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
-            }
-        }
-        info!("concretized rules for {}: {:?}", rule, concretized_rules);
-        assert!(concretized_rules.len() == num_concretized_rules);
-        concretized_rules
     }
 
     // TODO: change back.

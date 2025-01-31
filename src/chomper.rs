@@ -8,10 +8,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use z3::ast::Ast;
 
-use crate::{
-    ite::DummySort,
-    language::{CVec, ChompyLanguage, ValidationResult},
-};
+use crate::language::{CVec, ChompyLanguage, ValidationResult};
 use egglog::{sort::EqSort, EGraph};
 use log::info;
 use ruler::{
@@ -80,8 +77,6 @@ pub trait Chomper {
     type Constant: Display + Debug + Clone + PartialEq + Hash + Eq;
     fn get_language(&self) -> Box<impl ChompyLanguage<Constant = Self::Constant>>;
 
-    fn make_pred_interpreter() -> impl PredicateInterpreter + 'static;
-
     /// Returns the initial e-graph for the chomper, i.e.,
     /// the e-graph with the initial language definitions given from
     /// `get_language()`.
@@ -91,14 +86,6 @@ pub trait Chomper {
             name: self.get_language().get_name().into(),
         });
 
-        let interp: Arc<dyn PredicateInterpreter> = Arc::new(Self::make_pred_interpreter());
-
-        let dummy_sort = Arc::new(DummySort {
-            sort: sort.clone(),
-            interp,
-        });
-
-        egraph.add_arcsort(dummy_sort.clone()).unwrap();
         egraph.add_arcsort(sort.clone()).unwrap();
         egraph
             .parse_and_run_program(None, &self.get_language().to_egglog_src())
@@ -539,6 +526,7 @@ pub trait Chomper {
             println!("workload len: {}", new_workload.force().len());
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph, Some(max_eclass_id));
+
                 max_eclass_id += 1;
                 if max_eclass_id > MAX_ECLASS_ID {
                     panic!("max eclass id reached");
@@ -746,21 +734,6 @@ impl Chomper for MathChomper {
                 false
             }
         }
-    }
-
-    fn make_pred_interpreter() -> impl crate::PredicateInterpreter {
-        #[derive(Debug)]
-        struct DummyPredicateInterpreter;
-        impl PredicateInterpreter for DummyPredicateInterpreter {
-            fn interp_cond(&self, sexp: &ruler::enumo::Sexp) -> bool {
-                let dummy_term = MathLang::Var("dummy".to_string());
-                match dummy_term.eval(sexp, &Default::default()).first().unwrap() {
-                    Some(val) => *val > 0,
-                    None => false,
-                }
-            }
-        }
-        DummyPredicateInterpreter
     }
 
     fn initialize_env(

@@ -1,7 +1,5 @@
 pub mod chomper;
-pub mod ite;
 pub mod language;
-
 
 use ruler::enumo::Sexp;
 use std::fmt::Debug;
