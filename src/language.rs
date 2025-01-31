@@ -207,7 +207,7 @@ pub trait ChompyLanguage {
 
         for (arity, funcs) in funcs.iter().enumerate() {
             for func in funcs {
-                let mut defn = format!("(function {func} (");
+                let mut defn = format!("(constructor {func} (");
                 for _ in 0..arity {
                     defn += format!("{name} ").as_str();
                 }
@@ -222,8 +222,9 @@ pub trait ChompyLanguage {
         // TODO: this is getting kind of big, maybe put this in a template.egg file?
         let src = format!(
             r#"
-(function Const ({const_type}) {name})
-(function Var (String) {name})
+(sort {name})
+(constructor Const ({const_type}) {name})
+(constructor Var (String) {name})
 {func_defs_str}
 
 (datatype Predicate
@@ -242,7 +243,7 @@ pub trait ChompyLanguage {
 ;;; cvec = i64 is not great, because if a cvec hashes to 0 (our default value for "no cvec"), then
 ;;; we're in a pickle. but i don't think we'll run into that issue. on the rust side, we just need
 ;;; to assert that hash(cvec) != 0.
-(relation HasCvecHash ({name} i64))
+(function HasCvecHash ({name}) i64 :merge (max old new))
 (relation ConditionallyEqual (Predicate i64 i64))
 
 (relation universe ({name}))
@@ -253,28 +254,31 @@ pub trait ChompyLanguage {
 
 ;;; extract the terms that don't have a cvec.
 (rule
-    ((HasCvecHash ?a 0))
+    ((= (HasCvecHash ?a) 0))
     ((extract ?a))
     :ruleset find-no-cvec-terms)
 
-(ruleset discover-candidates)
+;;; i don't think there's a fundamental reason these need
+;;; to be different rulesets, but they do make parsing
+;;; far easier!
+(ruleset discover-total-candidates)
+(ruleset discover-cond-candidates)
 
 ;;; find total candidates
 (rule
-    ((HasCvecHash ?a ?c)
-     (HasCvecHash ?b ?c)
+    ((= (HasCvecHash ?a) (HasCvecHash ?b))
      ;;; TODO: why do we need the below?
      (!= ?a ?b))
     ((TotalRule ?a ?b))
-    :ruleset discover-candidates)
+    :ruleset discover-total-candidates)
 
 ;;; find conditional candidates
 (rule
     ((ConditionallyEqual ?p ?c1 ?c2)
-     (HasCvecHash ?t1 ?c1)
-     (HasCvecHash ?t2 ?c2))
+     (= (HasCvecHash ?t1) ?c1)
+     (= (HasCvecHash ?t2) ?c2))
     ((ConditionalRule ?p ?t1 ?t2))
-    :ruleset discover-candidates)
+    :ruleset discover-cond-candidates)
 
 (ruleset print-candidates)
 (rule
@@ -337,10 +341,6 @@ pub mod tests {
         let lang = MathLang::Var("dummy".to_string());
         let src = lang.to_egglog_src();
         let mut egraph = EGraph::default();
-        let sort = Arc::new(EqSort {
-            name: lang.get_name().into(),
-        });
-        egraph.add_arcsort(sort).unwrap();
         egraph.parse_and_run_program(None, &src).unwrap();
     }
 }
