@@ -232,6 +232,8 @@ pub trait ChompyLanguage {
     (Condition {name}))
 
 
+(relation GoodCvec Cvec)
+
 ;;; note that these are NOT rewrite rules;
 ;;; they're just likely candidates for rewrite rules.
 (datatype CandidateRule
@@ -243,8 +245,8 @@ pub trait ChompyLanguage {
 ;;; cvec = i64 is not great, because if a cvec hashes to 0 (our default value for "no cvec"), then
 ;;; we're in a pickle. but i don't think we'll run into that issue. on the rust side, we just need
 ;;; to assert that hash(cvec) != 0.
-(function HasCvecHash ({name}) i64 :merge (max old new))
-(relation ConditionallyEqual (Predicate i64 i64))
+(function HasCvecHash ({name}) Cvec :merge (MergeCvecs old new))
+(relation ConditionallyEqual (Predicate Cvec Cvec))
 
 (relation universe ({name}))
 (relation cond-equal ({name} {name}))
@@ -254,7 +256,7 @@ pub trait ChompyLanguage {
 
 ;;; extract the terms that don't have a cvec.
 (rule
-    ((= (HasCvecHash ?a) 0))
+    ((= (HasCvecHash ?a) (NoneCvec)))
     ((extract ?a))
     :ruleset find-no-cvec-terms)
 
@@ -411,7 +413,8 @@ impl ChompyLanguage for MathLang {
     }
 
     fn get_vals(&self) -> Vec<Self::Constant> {
-        vec![-1, 0, 1]
+        vec![]
+        // TODO: change back to: vec![-1, 0, 1]
     }
 
     fn get_vars(&self) -> Vec<String> {
@@ -471,12 +474,11 @@ impl ChompyLanguage for MathLang {
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            // vec!["Abs".to_string(), "Neg".to_string()],
-            vec!["Neg".to_string()],
+            vec!["Abs".to_string(), "Neg".to_string()],
             vec![
                 "Add".to_string(),
                 "Sub".to_string(),
-                // "Mul".to_string(),
+                "Mul".to_string(),
                 "Div".to_string(),
                 "Neq".to_string(),
                 "Gt".to_string(),
