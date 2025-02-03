@@ -44,6 +44,8 @@ impl Rule {
                     // prioritize variables over other things.
                     if a == "Var" {
                         1
+                    } else if a == "Const" {
+                        3
                     } else {
                         2
                     }
@@ -257,6 +259,7 @@ pub trait Chomper {
     /// Returns if the given rule can be derived from the ruleset within the given e-graph.
     /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
     fn rule_is_derivable(&self, initial_egraph: &EGraph, rule: &Rule) -> bool {
+        println!("deriving rule: {}", rule);
         // TODO: make a cleaner implementation of below:
         if let Some(cond) = &rule.condition {
             if cond.to_string() == rule.lhs.to_string() {
@@ -288,18 +291,18 @@ pub trait Chomper {
         let lhs = simple_concretize(&rule.lhs);
         let rhs = simple_concretize(&rule.rhs);
 
-        if !lhs.to_string().contains("?") && !rhs.to_string().contains("?") {
-            // we don't want to assert equalities between constants.
-            return true;
-        }
+        // if !lhs.to_string().contains("?") && !rhs.to_string().contains("?") {
+        //     // we don't want to assert equalities between constants.
+        //     return true;
+        // }
 
-        const MAX_DERIVABILITY_ITERATIONS: usize = 3;
+        const MAX_DERIVABILITY_ITERATIONS: usize = 2;
 
         let mut egraph = initial_egraph.clone();
         self.add_term(&lhs, &mut egraph);
         self.add_term(&rhs, &mut egraph);
-        println!("lhs: {}", lhs);
-        println!("rhs: {}", rhs);
+        // println!("lhs: {}", lhs);
+        // println!("rhs: {}", rhs);
         if let Some(cond) = &rule.condition {
             let cond = format_sexp(&simple_concretize(cond));
             egraph
@@ -308,6 +311,7 @@ pub trait Chomper {
             self.run_condition_propagation(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
         }
         self.run_rewrites(&mut egraph, Some(MAX_DERIVABILITY_ITERATIONS));
+        // println!("HI: {}", rule);
         let result = self.check_equality(&mut egraph, &lhs, &rhs);
         if !result {
             // the existing ruleset was unable to derive the equality.
@@ -423,13 +427,13 @@ pub trait Chomper {
     fn get_candidates(&self, egraph: &mut EGraph) -> Vec<Rule> {
         let mut candidates: Vec<Rule> = vec![];
 
-        println!("BEFORE");
+        // println!("BEFORE");
         let size_info = egraph
             .parse_and_run_program(None, r#"(print-size)"#)
             .unwrap();
-        for info in size_info {
-            println!("{}", info);
-        }
+        // for info in size_info {
+        //     println!("{}", info);
+        // }
 
         let get_candidates_prog = r#"
             (run-schedule
@@ -443,14 +447,6 @@ pub trait Chomper {
         let found_candidates = egraph
             .parse_and_run_program(None, get_candidates_prog)
             .unwrap();
-
-        println!("AFTER");
-        let size_info = egraph
-            .parse_and_run_program(None, r#"(print-size)"#)
-            .unwrap();
-        for info in size_info {
-            println!("{}", info);
-        }
 
         for candidate in found_candidates {
             let sexp = Sexp::from_str(&candidate).unwrap();
@@ -494,6 +490,7 @@ pub trait Chomper {
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
+        // TODO: get rid of get_pvecs
         let pvecs = self.get_pvecs(&env);
         // TODO: we should remove commented out portion entirely; the idea of
         // new workload is that it should be the set union of atoms and new stuff.
@@ -515,6 +512,8 @@ pub trait Chomper {
             }
 
             println!("workload len: {}", new_workload.force().len());
+            continue;
+
             for term in &new_workload.force() {
                 self.add_term(term, &mut egraph);
                 let sexp = format_sexp(term);
@@ -551,30 +550,43 @@ pub trait Chomper {
                 {
                     break;
                 }
-                println!("NUM CANDIDATES: {}", candidates.len());
                 seen_rules.extend(candidates.iter().map(|rule| rule.to_string()));
                 let mut just_rewrite_egraph = self.get_initial_egraph();
                 for rule in rules.iter() {
                     self.add_rewrite(&mut just_rewrite_egraph, rule);
                 }
                 candidates.sort();
+                candidates.dedup();
+                let mut seen_this_round: Vec<Rule> = vec![];
+                println!("NUM CANDIDATES: {}", candidates.len());
                 for rule in &candidates[..] {
-                    let valid = language.validate_rule(rule);
-                    let rule = language.generalize_rule(&rule.clone());
-                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule);
-                    println!("candidate rule: {}", rule);
-                    println!("validation result: {:?}", valid);
-                    println!("is derivable? {}", if derivable { "yes" } else { "no" });
-                    if valid == ValidationResult::Valid && !derivable {
-                        let rule = language.generalize_rule(&rule.clone());
-                        info!("rule: {}", rule);
-                        println!("RULE IS: {}", rule);
-                        rules.push(rule.clone());
-                        self.add_rewrite(&mut egraph, &rule);
-                        self.add_rewrite(&mut just_rewrite_egraph, &rule);
+                    info!("candidate rule: {}", rule);
+                    let generalized_rule = language.generalize_rule(&rule.clone());
+                    if seen_this_round.contains(&generalized_rule) {
+                        continue;
+                    } else {
+                        seen_this_round.push(generalized_rule.clone());
                     }
+                    let valid = language.validate_rule(rule);
+                    if valid == ValidationResult::Invalid {
+                        info!("rule invalid: {}", rule);
+                        continue;
+                    }
+                    let rule = generalized_rule;
+                    let derivable = self.rule_is_derivable(&just_rewrite_egraph, &rule);
+                    info!("is derivable? {}", if derivable { "yes" } else { "no" });
+                    if derivable {
+                        info!("skipping {}, is derivable.", rule);
+                        continue;
+                    }
+                    info!("rule: {}", rule);
+                    println!("RULE IS: {}", rule);
+                    rules.push(rule.clone());
+                    self.add_rewrite(&mut egraph, &rule);
+                    self.add_rewrite(&mut just_rewrite_egraph, &rule);
                 }
             }
+            println!("done adding candidates!");
         }
         rules
     }

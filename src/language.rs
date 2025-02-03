@@ -4,7 +4,7 @@ use std::{collections::HashSet, fmt::Display, hash::Hash, ops::Neg};
 use rand::rngs::StdRng;
 use rand::Rng;
 use ruler::{
-    enumo::{Sexp, Workload},
+    enumo::{Filter, Sexp, Workload},
     recipe_utils::iter_metric,
     HashMap,
 };
@@ -162,6 +162,7 @@ pub trait ChompyLanguage {
         }
 
         iter_metric(funcs_and_atoms, "EXPR", ruler::enumo::Metric::Atoms, size)
+            .filter(Filter::Contains("Var".parse().unwrap()))
     }
 
     /// Returns the base set of atoms in the language.
@@ -344,7 +345,7 @@ impl ChompyLanguage for MathLang {
     }
 
     fn get_vals(&self) -> Vec<Self::Constant> {
-        vec![]
+        vec![-1, 0, 1]
         // TODO: change back to: vec![-1, 0, 1]
     }
 

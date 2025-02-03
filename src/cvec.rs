@@ -18,7 +18,9 @@ type CvecMap = IndexMap<Value, String>;
 
 /// Wow, I can't believe we're back to creating this!
 pub fn to_cvec_val(s: Symbol) -> Value {
-    Value {
+    egglog::Value {
+        // TODO: this is so weird.. commenting out the line below
+        // makes this work when using `cargo flamegraph`?
         tag: "Cvec".into(),
         bits: Value::from(s).bits,
     }
