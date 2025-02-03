@@ -219,86 +219,11 @@ pub trait ChompyLanguage {
         let func_defs_str = func_defs.join("\n");
         let const_type = self.const_type_as_str();
 
-        // TODO: this is getting kind of big, maybe put this in a template.egg file?
-        let src = format!(
-            r#"
-(sort {name})
-(constructor Const ({const_type}) {name})
-(constructor Var (String) {name})
-{func_defs_str}
+        let src = include_str!("../egglog/chompy-template.egg")
+            .replace("{func_defs_str}", &func_defs_str)
+            .replace("{name}", &self.get_name())
+            .replace("{const_type}", &const_type);
 
-(datatype Predicate
-    (TRUE)
-    (Condition {name}))
-
-
-(relation GoodCvec Cvec)
-
-;;; note that these are NOT rewrite rules;
-;;; they're just likely candidates for rewrite rules.
-(datatype CandidateRule
-    (TotalRule {name} {name})
-    (ConditionalRule Predicate {name} {name}))
-
-;;; cvecs will just be represented with their hashes (i64).
-;;; TODO (@ninehusky): address the following:
-;;; cvec = i64 is not great, because if a cvec hashes to 0 (our default value for "no cvec"), then
-;;; we're in a pickle. but i don't think we'll run into that issue. on the rust side, we just need
-;;; to assert that hash(cvec) != 0.
-(function HasCvecHash ({name}) Cvec :merge (MergeCvecs old new))
-(relation ConditionallyEqual (Predicate Cvec Cvec))
-
-(relation universe ({name}))
-(relation cond-equal ({name} {name}))
-
-;;; forward ruleset definitions
-(ruleset find-no-cvec-terms)
-
-;;; extract the terms that don't have a cvec.
-(rule
-    ((= (HasCvecHash ?a) (NoneCvec)))
-    ((extract ?a))
-    :ruleset find-no-cvec-terms)
-
-;;; i don't think there's a fundamental reason these need
-;;; to be different rulesets, but they do make parsing
-;;; far easier!
-(ruleset discover-total-candidates)
-(ruleset discover-cond-candidates)
-
-;;; find total candidates
-(rule
-    ((= (HasCvecHash ?a) (HasCvecHash ?b))
-     ;;; TODO: why do we need the below?
-     (!= ?a ?b))
-    ((TotalRule ?a ?b))
-    :ruleset discover-total-candidates)
-
-;;; find conditional candidates
-(rule
-    ((ConditionallyEqual ?p ?c1 ?c2)
-     (= (HasCvecHash ?t1) ?c1)
-     (= (HasCvecHash ?t2) ?c2))
-    ((ConditionalRule ?p ?t1 ?t2))
-    :ruleset discover-cond-candidates)
-
-(ruleset print-candidates)
-(rule
-  ((TotalRule ?a ?b))
-  ((extract (TotalRule ?a ?b)))
-  :ruleset print-candidates)
-
-(rule
-  ((ConditionalRule ?p ?a ?b))
-  ((extract (ConditionalRule ?p ?a ?b)))
-  :ruleset print-candidates)
-
-(ruleset total-rewrites)
-(ruleset cond-rewrites)
-(ruleset condition-propagation)
-
-        "#
-        );
         src.to_string()
     }
 }
@@ -331,8 +256,11 @@ pub fn is_var(sexp: &Sexp) -> bool {
 
 #[allow(unused_imports)]
 pub mod tests {
-    use crate::language::{CVec, ChompyLanguage, Constant};
-    use egglog::{sort::EqSort, EGraph};
+    use crate::{
+        cvec::CvecSort,
+        language::{CVec, ChompyLanguage, Constant},
+    };
+    use egglog::{ast::Span, sort::EqSort, EGraph};
     use ruler::enumo::Sexp;
     use std::{str::FromStr, sync::Arc};
 
@@ -343,6 +271,9 @@ pub mod tests {
         let lang = MathLang::Var("dummy".to_string());
         let src = lang.to_egglog_src();
         let mut egraph = EGraph::default();
+        egraph
+            .add_arcsort(Arc::new(CvecSort::new()), Span::Panic)
+            .unwrap();
         egraph.parse_and_run_program(None, &src).unwrap();
     }
 }
