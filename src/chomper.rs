@@ -212,27 +212,6 @@ pub trait Chomper {
         result
     }
 
-    /// Returns a vector of candidate rules between e-classes in the e-graph.
-    /// It better be the case that by the time we're calling this,
-    /// that every term in the e-graph has a Cvec associated with it.
-    fn cvec_match(
-        &self,
-        egraph: &mut EGraph,
-        predicate_map: &HashMap<Vec<bool>, Vec<Sexp>>,
-        // Yeah.
-        cvecs: &HashMap<i64, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>,
-        env: &HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>,
-    ) -> Vec<Rule> {
-        let find_cvec_prog = r#"
-        (run-schedule
-            (saturate discover-candidates))
-        "#;
-        let terms = egraph.parse_and_run_program(None, find_cvec_prog).unwrap();
-        // TODO: let's just see what's in "terms"
-
-        vec![]
-    }
-
     /// Returns a map from variable names to their values.
     fn initialize_env(
         &self,
@@ -259,7 +238,7 @@ pub trait Chomper {
     /// Returns if the given rule can be derived from the ruleset within the given e-graph.
     /// Assumes that `rule` has been generalized (see `ChompyLanguage::generalize_rule`).
     fn rule_is_derivable(&self, initial_egraph: &EGraph, rule: &Rule) -> bool {
-        println!("deriving rule: {}", rule);
+        info!("deriving rule: {}", rule);
         // TODO: make a cleaner implementation of below:
         if let Some(cond) = &rule.condition {
             if cond.to_string() == rule.lhs.to_string() {
@@ -391,6 +370,7 @@ pub trait Chomper {
         &self,
         egraph: &mut EGraph,
         env: &HashMap<String, CVec<dyn ChompyLanguage<Constant = Self::Constant>>>,
+        cvecs: &mut HashSet<(CVec<dyn ChompyLanguage<Constant = Self::Constant>>, String)>,
     ) -> () {
         let get_unassigned_terms_prog = r#"
             (run-schedule
@@ -407,6 +387,7 @@ pub trait Chomper {
             let mut hasher = DefaultHasher::new();
             cvec.hash(&mut hasher);
             let hash: u64 = hasher.finish();
+            cvecs.insert((cvec.clone(), format!("{}", hash)));
             if hash == 0 {
                 panic!(
                     "Can't have cvec hash of 0. We just can't. Term was: {}",
@@ -415,6 +396,11 @@ pub trait Chomper {
             }
             let hash = format!("{:?}", cvec);
             let sexp = format_sexp(&sexp);
+            info!(
+                "assigning cvec: {} gets {}",
+                sexp,
+                &format!("(set (HasCvecHash {sexp}) (SomeCvec \"{hash}\"))")
+            );
             egraph
                 .parse_and_run_program(
                     None,
@@ -426,14 +412,6 @@ pub trait Chomper {
 
     fn get_candidates(&self, egraph: &mut EGraph) -> Vec<Rule> {
         let mut candidates: Vec<Rule> = vec![];
-
-        // println!("BEFORE");
-        let size_info = egraph
-            .parse_and_run_program(None, r#"(print-size)"#)
-            .unwrap();
-        // for info in size_info {
-        //     println!("{}", info);
-        // }
 
         let get_candidates_prog = r#"
             (run-schedule
@@ -450,12 +428,26 @@ pub trait Chomper {
 
         for candidate in found_candidates {
             let sexp = Sexp::from_str(&candidate).unwrap();
+            info!("candidate: {}", sexp);
             if let Sexp::List(ref l) = sexp {
                 match l.len() {
                     4 => {
                         assert_eq!(l[0], Sexp::Atom("ConditionalRule".to_string()));
+                        // strip off the "Condition" part of the condition to just get the
+                        // predicate.
+                        let mut pred: Option<Sexp> = None;
+                        if let Sexp::List(ref l) = l[1] {
+                            if let Sexp::Atom(ref a) = l[0] {
+                                if a == "Condition" {
+                                    pred = Some(l[1].clone());
+                                }
+                            }
+                        }
+                        if pred == None {
+                            panic!("Unexpected sexp: {:?}", sexp);
+                        }
                         candidates.push(Rule {
-                            condition: Some(l[1].clone()),
+                            condition: pred,
                             lhs: l[2].clone(),
                             rhs: l[3].clone(),
                         });
@@ -482,6 +474,69 @@ pub trait Chomper {
         candidates
     }
 
+    fn pvec_match(
+        &self,
+        egraph: &mut EGraph,
+        pvecs: &HashMap<Vec<bool>, Vec<Sexp>>,
+        cvecs: &HashSet<(CVec<dyn ChompyLanguage<Constant = Self::Constant>>, String)>,
+    ) {
+        // TODO: we could probably memoize somewhere here somehow.
+        //
+        println!("cvec size: {}", cvecs.len());
+
+        // double nested loop through cvec pairs.
+        let mut i = 0;
+        for (cvec1, hash1) in cvecs.iter() {
+            i += 1;
+            for (cvec2, hash2) in cvecs.iter().skip(i) {
+                if cvec1 == cvec2 {
+                    // this really shouldn't happen.
+                    continue;
+                }
+
+                // get mask
+                let mut mask: Vec<bool> = vec![];
+                for i in 0..cvec1.len() {
+                    mask.push(cvec1[i] == cvec2[i]);
+                }
+
+                // if the mask is completely false, get rid of it.
+                if mask.iter().all(|b| !b) {
+                    continue;
+                }
+
+                for predicate in pvecs.get(&mask).unwrap_or(&vec![]) {
+                    info!(
+                        "{}",
+                        format!(
+                            r#"
+                        (ConditionallyEqual (Condition {}) (SomeCvec "{:?}") (SomeCvec "{:?}"))
+                    "#,
+                            format_sexp(predicate),
+                            cvec1,
+                            cvec2
+                        )
+                        .as_str(),
+                    );
+                    egraph
+                        .parse_and_run_program(
+                            None,
+                            format!(
+                                r#"
+                        (ConditionallyEqual (Condition {}) (SomeCvec "{:?}") (SomeCvec "{:?}"))
+                    "#,
+                                format_sexp(predicate),
+                                cvec1,
+                                cvec2
+                            )
+                            .as_str(),
+                        )
+                        .unwrap();
+                }
+            }
+        }
+    }
+
     fn run_chompy(&self, max_size: usize) -> Vec<Rule> {
         const MAX_ECLASS_ID: usize = 6000;
         let mut egraph = self.get_initial_egraph();
@@ -490,7 +545,6 @@ pub trait Chomper {
         let language = self.get_language();
         let mut rules: Vec<Rule> = vec![];
         let atoms = language.base_atoms();
-        // TODO: get rid of get_pvecs
         let pvecs = self.get_pvecs(&env);
         // TODO: we should remove commented out portion entirely; the idea of
         // new workload is that it should be the set union of atoms and new stuff.
@@ -511,10 +565,11 @@ pub trait Chomper {
                 new_workload = new_workload.filter(Filter::Excludes("Const".parse().unwrap()));
             }
 
-            println!("workload len: {}", new_workload.force().len());
-            continue;
+            let forced = new_workload.force();
 
-            for term in &new_workload.force() {
+            println!("workload len: {}", forced.len());
+
+            for term in &forced {
                 self.add_term(term, &mut egraph);
                 let sexp = format_sexp(term);
                 egraph
@@ -530,14 +585,21 @@ pub trait Chomper {
                 }
             }
             let mut seen_rules: HashSet<String> = Default::default();
+            // this keeps track of everything we've seen.
+            let mut cvecs: HashSet<(CVec<dyn ChompyLanguage<Constant = Self::Constant>>, String)> =
+                Default::default();
             loop {
                 info!("trying to merge new terms using existing rewrites...");
                 self.run_rewrites(&mut egraph, Some(7));
                 info!("i'm done running rewrites");
 
                 println!("assigning cvecs...");
-                self.assign_cvecs(&mut egraph, &env);
+                self.assign_cvecs(&mut egraph, &env, &mut cvecs);
                 println!("done assigning cvecs");
+
+                println!("calculating cvec conditional equality:");
+                self.pvec_match(&mut egraph, &pvecs, &cvecs);
+                println!("done calculating cvec conditional equality");
 
                 println!("getting candidates...");
                 let mut candidates = self.get_candidates(&mut egraph);

@@ -400,6 +400,7 @@ impl ChompyLanguage for MathLang {
         Workload::new(&["(BINOP EXPR EXPR)"])
             .plug("BINOP", &Workload::new(&["Neq", "Gt"]))
             .plug("EXPR", &Workload::new(atoms))
+            .filter(Filter::Contains("Var".parse().unwrap()))
     }
 
     // TODO: change back.
