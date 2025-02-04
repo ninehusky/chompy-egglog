@@ -1,10 +1,10 @@
 use core::str;
-use std::{collections::HashSet, fmt::Display, ops::Neg};
+use std::{collections::HashSet, fmt::Display, hash::Hash, ops::Neg};
 
 use rand::rngs::StdRng;
 use rand::Rng;
 use ruler::{
-    enumo::{Sexp, Workload},
+    enumo::{Filter, Sexp, Workload},
     recipe_utils::iter_metric,
     HashMap,
 };
@@ -27,7 +27,7 @@ pub enum ValidationResult {
 
 /// An interface for languages.
 pub trait ChompyLanguage {
-    type Constant: Display + Clone;
+    type Constant: Display + Clone + Hash;
     /// Returns the name of the language.
     /// This will also be the name of the top-level `datatype`
     /// defining the language in the Egglog source.
@@ -48,15 +48,6 @@ pub trait ChompyLanguage {
     fn make_sexp(&self) -> Sexp;
 
     fn const_type_as_str(&self) -> String;
-
-    /// Given some rule `(l, r)`, returns a vector of `(l', r')` pairs where `l'` and `r'`
-    /// are `l` and `r` concretized with variables replaced by constants. `l'` must be
-    /// equivalent to `r'`.
-    fn concretize_rule(
-        &self,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> Vec<(Sexp, Sexp)>;
 
     /// Generalizes the given term by replacing variables with unique identifiers.
     /// These identifiers are just '?a', '?b', etc. The letter which is assigned to a variable
@@ -171,6 +162,7 @@ pub trait ChompyLanguage {
         }
 
         iter_metric(funcs_and_atoms, "EXPR", ruler::enumo::Metric::Atoms, size)
+            .filter(Filter::Contains("Var".parse().unwrap()))
     }
 
     /// Returns the base set of atoms in the language.
@@ -216,7 +208,7 @@ pub trait ChompyLanguage {
 
         for (arity, funcs) in funcs.iter().enumerate() {
             for func in funcs {
-                let mut defn = format!("(function {func} (");
+                let mut defn = format!("(constructor {func} (");
                 for _ in 0..arity {
                     defn += format!("{name} ").as_str();
                 }
@@ -228,40 +220,11 @@ pub trait ChompyLanguage {
         let func_defs_str = func_defs.join("\n");
         let const_type = self.const_type_as_str();
 
-        let src = format!(
-            r#"
-(function Const ({const_type}) {name})
-(function Var (String) {name})
-{func_defs_str}
+        let src = include_str!("../egglog/chompy-template.egg")
+            .replace("{func_defs_str}", &func_defs_str)
+            .replace("{name}", &self.get_name())
+            .replace("{const_type}", &const_type);
 
-(function eclass ({name}) i64 :merge (min old new))
-(relation universe ({name}))
-(relation cond-equal ({name} {name}))
-
-(datatype Predicate
-    (TRUE)
-    (Condition {name}))
-
-
-
-;;; forward ruleset definitions
-(ruleset eclass-report)
-(ruleset total-rewrites)
-(ruleset cond-rewrites)
-(ruleset condition-propagation)
-
-;;; a "function", more or less, that prints out each e-class and its
-;;; term.
-;;; i'm not 100% sure why this only runs once per e-class -- it's because
-;;; the (eclass ?term) can only be matched on once?
-(rule ((eclass ?term))
-      ((extract "eclass:")
-      (extract (eclass ?term))
-      (extract "candidate term:")
-      (extract ?term))
-      :ruleset eclass-report)
-        "#
-        );
         src.to_string()
     }
 }
@@ -294,8 +257,11 @@ pub fn is_var(sexp: &Sexp) -> bool {
 
 #[allow(unused_imports)]
 pub mod tests {
-    use crate::language::{CVec, ChompyLanguage, Constant};
-    use egglog::{sort::EqSort, EGraph};
+    use crate::{
+        cvec::CvecSort,
+        language::{CVec, ChompyLanguage, Constant},
+    };
+    use egglog::{ast::Span, sort::EqSort, EGraph};
     use ruler::enumo::Sexp;
     use std::{str::FromStr, sync::Arc};
 
@@ -306,10 +272,9 @@ pub mod tests {
         let lang = MathLang::Var("dummy".to_string());
         let src = lang.to_egglog_src();
         let mut egraph = EGraph::default();
-        let sort = Arc::new(EqSort {
-            name: lang.get_name().into(),
-        });
-        egraph.add_arcsort(sort).unwrap();
+        egraph
+            .add_arcsort(Arc::new(CvecSort::new()), Span::Panic)
+            .unwrap();
         egraph.parse_and_run_program(None, &src).unwrap();
     }
 }
@@ -381,6 +346,7 @@ impl ChompyLanguage for MathLang {
 
     fn get_vals(&self) -> Vec<Self::Constant> {
         vec![-1, 0, 1]
+        // TODO: change back to: vec![-1, 0, 1]
     }
 
     fn get_vars(&self) -> Vec<String> {
@@ -434,174 +400,18 @@ impl ChompyLanguage for MathLang {
         Workload::new(&["(BINOP EXPR EXPR)"])
             .plug("BINOP", &Workload::new(&["Neq", "Gt"]))
             .plug("EXPR", &Workload::new(atoms))
-    }
-
-    fn concretize_rule(
-        &self,
-        rule: &Rule,
-        env_cache: &mut HashMap<(String, String), Vec<HashMap<String, Sexp>>>,
-    ) -> Vec<(Sexp, Sexp)> {
-        info!("now concretizing rule: {}", rule);
-        fn subst(sexp: &Sexp, env: &HashMap<String, Sexp>) -> Sexp {
-            match sexp {
-                Sexp::Atom(a) => {
-                    if a.starts_with("?") {
-                        if let Some(val) = env.get(a) {
-                            return val.clone();
-                        }
-                        panic!("Variable not found in environment: {:?}", a);
-                    } else {
-                        sexp.clone()
-                    }
-                }
-                Sexp::List(l) => {
-                    let mut new_l: Vec<Sexp> = vec![];
-                    for t in l {
-                        new_l.push(subst(t, env));
-                    }
-                    Sexp::List(new_l)
-                }
-            }
-        }
-
-        // This is a hack. So sorry, everyone.
-        fn degeneralize(sexp: &Sexp) -> Sexp {
-            match sexp {
-                Sexp::Atom(a) => {
-                    if a.starts_with("?") {
-                        Sexp::List(vec![
-                            Sexp::Atom("Var".to_string()),
-                            Sexp::Atom(a.to_string()),
-                        ])
-                    } else {
-                        sexp.clone()
-                    }
-                }
-                Sexp::List(l) => {
-                    let mut new_l: Vec<Sexp> = vec![];
-                    for t in l {
-                        new_l.push(degeneralize(t));
-                    }
-                    Sexp::List(new_l)
-                }
-            }
-        }
-
-        if let Some(cond) = &rule.condition {
-            if let Some(cached) = env_cache.get(&(cond.to_string(), rule.lhs.to_string())) {
-                info!("cache hit for : {:?}", rule);
-                let result: Vec<(Sexp, Sexp)> = cached
-                    .iter()
-                    .map(|env| (subst(&rule.lhs, env), subst(&rule.rhs, env)))
-                    .collect();
-                info!("cached concretized rules for {}", rule);
-                for (lhs, rhs) in result.iter() {
-                    info!("{} ~> {}", lhs, rhs);
-                }
-                return result;
-            }
-        }
-
-        let num_concretized_rules = 10;
-        let vars: HashSet<String> = self.get_vars().into_iter().collect();
-
-        // caches that map variables to their corresponding values (all should be constants for
-        // now).
-        let mut env_caches: Vec<HashMap<String, Sexp>> = vec![];
-
-        let mut concretized_rules: Vec<(Sexp, Sexp)> = vec![];
-        let mut cfg = z3::Config::new();
-        cfg.set_timeout_msec(1000);
-        let ctx = z3::Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
-        if let Some(cond) = &rule.condition {
-            info!("concretizing rule with condition: {:?}", cond);
-            // this is trickier. we need to assign values to the variables such that the condition
-            // holds.
-            let one = z3::ast::Int::from_i64(&ctx, 1);
-            for _ in 0..num_concretized_rules {
-                // assert(cond)
-                let mut assertions: Vec<z3::ast::Bool> = vec![];
-                assertions.push(
-                    mathlang_to_z3(&ctx, &MathLang::from(degeneralize(&cond.clone())))._eq(&one),
-                );
-                // push some dummy assertions just to get all variables in scope.
-                for var in &vars {
-                    let const_var = z3::ast::Int::new_const(&ctx, format!("?{}", var.clone()));
-                    // this assertion will always hold; a model which disproves the assertion
-                    // above will not break this assertion.
-                    assertions.push(const_var._eq(&const_var));
-                }
-                // there should also be assertions which make sure we don't generate
-                // the same model twice.
-                for env in env_caches.iter() {
-                    for (var, val) in env {
-                        assertions.push(
-                            z3::ast::Int::new_const(&ctx, var.clone())
-                                ._eq(&mathlang_to_z3(&ctx, &MathLang::from(val.clone())))
-                                .not(),
-                        );
-                    }
-                }
-                // now, send this to the solver.
-                for assertion in &assertions {
-                    solver.assert(assertion);
-                }
-
-                info!("assertions: {:?}", assertions);
-                if let z3::SatResult::Sat = solver.check() {
-                    let model = solver.get_model().unwrap();
-                    info!("model: {:?}", model.to_string());
-                    let mut env: HashMap<String, Sexp> = HashMap::default();
-                    for var in &vars {
-                        let val = model
-                            .eval(&z3::ast::Int::new_const(&ctx, format!("?{}", var.clone())))
-                            .unwrap()
-                            .as_i64()
-                            .unwrap();
-                        // want to make sure not adding extra ?
-                        assert!(!var.clone().starts_with("?"));
-                        env.insert(format!("?{}", var.clone()), self.make_val(val));
-                    }
-                    env_caches.push(env.clone());
-                    concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
-                    env_cache.insert(
-                        (
-                            rule.condition.clone().unwrap().to_string(),
-                            rule.lhs.to_string(),
-                        ),
-                        env_caches.clone(),
-                    );
-                } else {
-                    panic!("Couldn't find satisfiable model for condition: {:?}", cond);
-                }
-            }
-        } else {
-            let mut rng: StdRng = rand::SeedableRng::seed_from_u64(0xf00d4b0bacafe);
-            for _ in 0..num_concretized_rules {
-                let mut env: HashMap<String, Sexp> = HashMap::default();
-                for v in &vars {
-                    let val = rng.gen_range(-10..10);
-                    env.insert(format!("?{}", v.clone()), self.make_val(val));
-                }
-                concretized_rules.push((subst(&rule.lhs, &env), subst(&rule.rhs, &env)));
-            }
-        }
-        info!("concretized rules for {}: {:?}", rule, concretized_rules);
-        assert!(concretized_rules.len() == num_concretized_rules);
-        concretized_rules
+            .filter(Filter::Contains("Var".parse().unwrap()))
     }
 
     // TODO: change back.
     fn get_funcs(&self) -> Vec<Vec<String>> {
         vec![
             vec![],
-            // vec!["Abs".to_string(), "Neg".to_string()],
-            vec!["Neg".to_string()],
+            vec!["Abs".to_string(), "Neg".to_string()],
             vec![
                 "Add".to_string(),
                 "Sub".to_string(),
-                // "Mul".to_string(),
+                "Mul".to_string(),
                 "Div".to_string(),
                 "Neq".to_string(),
                 "Gt".to_string(),

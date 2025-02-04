@@ -1,0 +1,78 @@
+(sort {name})
+(constructor Const ({const_type}) {name})
+(constructor Var (String) {name})
+{func_defs_str}
+
+(datatype Predicate
+    (TRUE)
+    (Condition {name}))
+
+;;; A representation of when a Cvec is good.
+;;; e.g., when it's not all the same constant,
+;;; not all nones, etc.
+;;; In the beginning, we'll probably want to match on
+;;; *all* cvecs regardless if they're good, to rewrite things like
+;;; a * 0 ~> 0.
+;;; But, after a certain size, we'll probably want to avoid these so that
+;;; we don't get rewrites like a * 0 + 2 ~> 1 + 1.
+;; (relation GoodCvec (Cvec))
+
+;;; note that these are NOT rewrite rules;
+;;; they're just likely candidates for rewrite rules.
+(datatype CandidateRule
+    (TotalRule {name} {name})
+    (ConditionalRule Predicate {name} {name}))
+
+;;; cvecs will just be represented with their hashes (u64s, but as strings).
+;;; to assert that hash(cvec) != 0.
+(function HasCvecHash ({name}) Cvec :merge (MergeCvecs old new))
+;;; <pvec_hash> <cvec_hash> <cvec_hash>
+(relation ConditionallyEqual (Predicate Cvec Cvec))
+
+(relation universe ({name}))
+(relation cond-equal ({name} {name}))
+
+;;; forward ruleset definitions
+(ruleset find-no-cvec-terms)
+
+;;; extract the terms that don't have a cvec.
+(rule
+    ((= (HasCvecHash ?a) (NoneCvec)))
+    ((extract ?a))
+    :ruleset find-no-cvec-terms)
+
+;;; i don't think there's a fundamental reason these need
+;;; to be different rulesets, but they do make parsing
+;;; far easier!
+(ruleset discover-total-candidates)
+(ruleset discover-cond-candidates)
+
+;;; find total candidates
+(rule
+    ((= (HasCvecHash ?a) (HasCvecHash ?b))
+     (!= ?a ?b))
+    ((TotalRule ?a ?b))
+    :ruleset discover-total-candidates)
+
+;;; find conditional candidates
+(rule
+    ((ConditionallyEqual ?p ?c1 ?c2)
+     (= (HasCvecHash ?t1) ?c1)
+     (= (HasCvecHash ?t2) ?c2))
+    ((ConditionalRule ?p ?t1 ?t2))
+    :ruleset discover-cond-candidates)
+
+(ruleset print-candidates)
+(rule
+  ((TotalRule ?a ?b))
+  ((extract (TotalRule ?a ?b)))
+  :ruleset print-candidates)
+
+(rule
+  ((ConditionalRule ?p ?a ?b))
+  ((extract (ConditionalRule ?p ?a ?b)))
+  :ruleset print-candidates)
+
+(ruleset total-rewrites)
+(ruleset cond-rewrites)
+(ruleset condition-propagation)
